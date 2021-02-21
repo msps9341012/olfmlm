@@ -591,7 +591,7 @@ class PreTrainedBertModel(nn.Module):
     @classmethod
     def from_pretrained(cls, pretrained_model_name, state_dict=None, cache_dir=None,
                         fp32_layernorm=False, fp32_embedding=False, layernorm_epsilon=1e-12,
-                        fp32_tokentypes=False, *inputs, **kwargs):
+                        fp32_tokentypes=False, config_file_path=None,*inputs, **kwargs):
         """
         Instantiate a PreTrainedBertModel from a pre-trained model file or a pytorch state dict.
         Download and cache the pre-trained model file if needed.
@@ -648,17 +648,19 @@ class PreTrainedBertModel(nn.Module):
             serialization_dir = tempdir
         # Load config
         config_file = os.path.join(serialization_dir, CONFIG_NAME)
-        config = BertConfig.from_json_file(config_file)
+        config = BertConfig.from_json_file(config_file_path)
+        '''
         config.fp32_layernorm = fp32_layernorm
         config.fp32_embedding = fp32_embedding
         config.layernorm_epsilon = layernorm_epsilon
         config.fp32_tokentypes = fp32_tokentypes
-        logger.info("Model config {}".format(config))
+        '''
         # Instantiate model.
         model = cls(config, *inputs, **kwargs)
         if state_dict is None:
             weights_path = os.path.join(serialization_dir, WEIGHTS_NAME)
             state_dict = torch.load(weights_path)
+        #print(state_dict.keys())
 
         old_keys = []
         new_keys = []
@@ -690,6 +692,7 @@ class PreTrainedBertModel(nn.Module):
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
+         
         load(model, prefix='' if hasattr(model, 'bert') else 'bert.')
         if len(missing_keys) > 0:
             logger.info("Weights of {} not initialized from pretrained model: {}".format(
