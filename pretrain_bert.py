@@ -544,6 +544,7 @@ def main():
     # Model, optimizer, and learning rate.
     model, optimizer, lr_scheduler, criterion = setup_model_and_optimizer(
         args, tokenizer)
+    
 
     #model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
     timers("total time").start()

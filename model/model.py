@@ -62,10 +62,16 @@ class BertModel(torch.nn.Module):
         # if self.model_type == "referential_game":
         #     self.small_config = BertConfig(args.bert_small_config_file)
         #     model_args.append(self.small_config)
+
+            
         self.model = Bert(*model_args, modes=args.modes.split(','))
         if args.pretrained_bert:
             print('use pretrained weight')
             self.model.bert=self.model.bert.from_pretrained('bert-base-uncased',cache_dir=args.cache_dir,config_file_path=args.bert_config_file)
+            self.model.lm.decoder.weight=self.model.bert.embeddings.word_embeddings.weight
+            #self.model.bert=self.model.bert.from_pretrained('bert-base-uncased',cache_dir=args.cache_dir,config_file_path=args.bert_config_file)
+            
+            
 
     def forward(self, modes, input_tokens, token_type_ids=None, task_ids=None, attention_mask=None, checkpoint_activations=False, first_pass=False):
         return self.model(modes, input_tokens, token_type_ids, task_ids, attention_mask, checkpoint_activations=checkpoint_activations)
