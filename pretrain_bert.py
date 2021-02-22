@@ -377,7 +377,12 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
         # Update losses.
         for mode, loss in losses.items():
             total_losses[mode] = total_losses.get(mode, 0.0) + loss.data.detach().float()
-
+        
+        if args.save_iters and tot_iteration and tot_iteration%args.save_iters==0:
+            ck_path = 'ck/model_{}_{}.pt'.format(epoch,tot_iteration)
+            print('saving ck model to:',os.path.join(args.save, ck_path))
+            save_checkpoint(ck_path, epoch+1, model, optimizer, lr_scheduler, args)
+           
         # Logging.
         if log_tokens > args.log_interval:
             log_tokens = 0
@@ -405,10 +410,11 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
                 metrics[mode] = v
 
             experiment.log_metrics(metrics)
-            tot_iteration += iteration
+            #tot_iteration += iteration
             iteration = 0
+        tot_iteration=tot_iteration+1
 
-    print("Learnt using {} tokens over {} iterations this epoch".format(tot_tokens, tot_iteration + iteration))
+    print("Learnt using {} tokens over {} iterations this epoch".format(tot_tokens, tot_iteration))
 
 def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=False):
     """Evaluation."""

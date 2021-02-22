@@ -321,7 +321,7 @@ class DatasetWriter:
             input_files += [os.path.join(p, fn) for fn in os.listdir(p)]
 
         for input_file in tqdm(input_files):
-            with open(input_file, 'r') as in_f:
+            with open(input_file, 'r',encoding="utf-8", errors="ignore") as in_f:
                 paragraphs = self.convert_into_sentences(in_f)
                 doc = []
                 for p in paragraphs:
