@@ -706,6 +706,10 @@ class BertWordPieceTokenizer(Tokenizer):
             CommandToken('MASK', '[MASK]', self.text_tokenizer.vocab['[MASK]']),
             CommandToken('unk', '[UNK]', self.text_tokenizer.vocab['[UNK]']),
             CommandToken('sep', '[SEP]', self.text_tokenizer.vocab['[SEP]']),
+            CommandToken('s_1', '[unused0]', self.text_tokenizer.vocab['[unused0]']),
+            CommandToken('s_2', '[unused1]', self.text_tokenizer.vocab['[unused1]']),
+            CommandToken('s_3', '[unused2]', self.text_tokenizer.vocab['[unused2]']),
+            
         ]
         self.command_name_map = {tok.name: tok for tok in self._command_tokens}
         self.command_token_map = {tok.token: tok for tok in self._command_tokens}

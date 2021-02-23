@@ -492,7 +492,7 @@ class bert_dataset(data.Dataset):
         with open(self.idf_path, "rb") as f:
             self.idfs = pickle.load(f)
         self._all_tf = []
-        self.task_list = ["mlm", "nsp", "psp", "sd", "so", "rg", "fs", "tc", "sc", "sbo", "wlen", "cap", "tf", "tf_idf", "tgs"]
+        self.task_list = ["mlm", "nsp", "psp", "sd", "so", "rg", "fs", "tc", "sc", "sbo", "wlen", "cap", "tf", "tf_idf", "tgs","mf"]
         self.task_dict = dict(zip(self.task_list, range(1, len(self.task_list) + 1)))
 	
     def __len__(self):
@@ -525,7 +525,7 @@ class bert_dataset(data.Dataset):
         if "so" in self.modes: # Sentence Re-ordering Data
             self.split_percent = 1.0
             self.num_sent_per_seq = 2
-        if "rg" in self.modes or "fs" in self.modes: # Referential Game Data
+        if "rg" in self.modes or "fs" in self.modes or "mf" in self.modes: # Referential Game Data
             self.num_seq_returned = 2
         if "sc" in self.modes or "tc" in self.modes: # Sequence Consistency
             self.corruption_rate = 0.50
@@ -586,7 +586,13 @@ class bert_dataset(data.Dataset):
 
         # Contiguous multiple sequences
         elif split <= self.split_percent:
-            target_seq_len = self.max_seq_len * 2 if "rg" in self.modes or "fs" in self.modes else self.max_seq_len
+            if "rg" in self.modes or "fs" in self.modes or "mf" in self.modes:
+                target_seq_len = self.max_seq_len * 2 
+            else:
+                target_seq_len=self.max_seq_len
+                   
+            #target_seq_len = self.max_seq_len * 2 if "rg" in self.modes or "fs" in self.modes else self.max_seq_len
+            
             tokens, token_labels = self.get_sentence(target_seq_len, self.num_sent_per_seq * self.num_seq_returned, rng)
             
             for i in range(self.num_seq_returned):
@@ -677,6 +683,10 @@ class bert_dataset(data.Dataset):
         Truncate sequence pair
         """
         max_num_tokens = self.max_seq_len - 2
+        
+        if 'mf' in self.modes:
+            max_num_tokens=max_num_tokens-3
+            
         while True:
             if len(tokens) <= max_num_tokens:
                 break
@@ -974,8 +984,19 @@ class bert_dataset(data.Dataset):
             # Truncate sequence if too long
             self.truncate_sequence(tokens[i], token_types[i], token_labels, i, rng)
             # Add start and end tokens ('CLS' and 'SEP' respectively)
-            tokens[i] = [self.tokenizer.get_command('ENC').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
-            token_types[i] = [token_types[i][0]] + token_types[i] + [token_types[i][0]]
+            #add mf
+            if "mf" in self.modes:
+                tokens[i] = [self.tokenizer.get_command('ENC').Id] + [self.tokenizer.get_command('s_1').Id] +[self.tokenizer.get_command('s_2').Id] + [self.tokenizer.get_command('s_3').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
+                #add 3 types for views
+                token_types[i] = [token_types[i][0]] + [token_types[i][0]]*3 + token_types[i] + [token_types[i][0]]
+                
+            else:
+                tokens[i] = [self.tokenizer.get_command('ENC').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
+                token_types[i] = [token_types[i][0]] + token_types[i] + [token_types[i][0]]
+            
+            #tokens[i] = [self.tokenizer.get_command('ENC').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
+            
+            
             for k in token_labels.keys():
                 token_labels[k][i] = [0.] + token_labels[k][i] + [0.]
             cand_indices = list(range(len(tokens[i])))
@@ -993,7 +1014,10 @@ class bert_dataset(data.Dataset):
                 ci += 1
                 if idx in do_not_mask_tokens or tokens[i][idx] in [self.tokenizer.get_command('ENC').Id,
                                                                    self.tokenizer.get_command('sep').Id,
-                                                                   self.tokenizer.get_command('pad').Id]:
+                                                                   self.tokenizer.get_command('pad').Id,
+                                                                   self.tokenizer.get_command('s_1').Id,
+                                                                   self.tokenizer.get_command('s_2').Id,
+                                                                   self.tokenizer.get_command('s_3').Id]:
                     continue
                 mask[i][idx] = 1
                 label = self.mask_token(idx, tokens[i], token_types[i], vocab_words, rng)

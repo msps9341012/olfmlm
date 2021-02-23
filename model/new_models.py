@@ -60,7 +60,22 @@ class BertTokenHead(nn.Module):
         predictions = self.decoder(hidden_states)
         return predictions
 
+class BertPoolerforview(nn.Module):
+    def __init__(self, config):
+        super(BertPoolerforview, self).__init__()
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        self.activation = nn.Tanh()
 
+    def forward(self, token_tensor):
+        # We "pool" the model by simply taking the hidden state corresponding
+        # to the first token.
+        
+        pooled_output = self.dense(token_tensor)
+        pooled_output = self.activation(pooled_output)
+        return pooled_output
+
+    
+    
 class Bert(PreTrainedBertModel):
     """BERT model with pre-training heads.
     This module comprises the BERT model followed by the two pre-training heads:
@@ -143,6 +158,16 @@ class Bert(PreTrainedBertModel):
             self.tok["tc"] = BertTokenHead(config, num_classes=2)
         if "rg" in modes:
             self.sent["rg"] = BertHeadTransform(config)
+        if "mf" in modes:
+            self.sent["mf"] = torch.nn.ModuleDict()
+            self.sent["mf"]['s_1']=BertHeadTransform(config)
+            self.sent["mf"]['s_2']=BertHeadTransform(config)
+            self.sent["mf"]['s_3']=BertHeadTransform(config)
+            
+            self.sent["mf"]['v_1']=BertPoolerforview(config)
+            self.sent["mf"]['v_2']=BertPoolerforview(config)
+            self.sent["mf"]['v_3']=BertPoolerforview(config)
+            
         if "fs" in modes:
             self.sent["fs"] = BertHeadTransform(config)
             self.tok["fs"] = BertHeadTransform(config)
@@ -171,6 +196,25 @@ class Bert(PreTrainedBertModel):
             scores["sd"] = self.sent["sd"](pooled_output)
         if "so" in modes:
             scores["so"] = self.sent["so"](pooled_output)
+            
+        if "mf" in modes:
+            half = len(input_ids[0])
+            send_emb_list=[]
+            recv_emb_list=[]
+            for i in range(1,4):
+                pooled_output=self.sent['mf']['v_'+str(i)](sequence_output[:,i])
+                send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
+                send_emb, recv_emb = self.sent['mf']['s_'+str(i)](send_emb), self.sent['mf']['s_'+str(i)](recv_emb)
+                send_emb_list.append(send_emb)
+                recv_emb_list.append(recv_emb)
+            send_emb_tensor=torch.stack(send_emb_list)
+            recv_emb_tensor=torch.stack(recv_emb_list)
+            score_all=[]
+            for i in range(3):
+                score_all.append(self.cross_cos_sim(recv_emb_tensor,send_emb_tensor[i]))
+            
+            scores["mf"]=torch.amax(torch.stack(score_all),dim=(0,1))
+                
         if "rg" in modes:
             half = len(input_ids[0])
             send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
@@ -231,3 +275,8 @@ class Bert(PreTrainedBertModel):
 
     def inner_product(self, a, b):
         return torch.mm(a, b.transpose(0, 1))
+    
+    def cross_cos_sim(self,a,b):
+        a_norm = a / a.norm(dim=2)[:, :, None]
+        b_norm = b / b.norm(dim=1)[:, None]
+        return torch.matmul(a_norm,b_norm.transpose(0, 1)).transpose(1,2)
