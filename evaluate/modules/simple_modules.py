@@ -42,7 +42,8 @@ class Pooler(nn.Module):
             idxs = mask.expand_as(proj_seq).sum(dim=1, keepdim=True).long() - 1
             seq_emb = proj_seq.gather(dim=1, index=idxs).squeeze(dim=1)
         elif self.pool_type == "first":
-            seq_emb = proj_seq[:, 0]
+            #seq_emb = proj_seq[:, 0]
+            seq_emb = proj_seq[:, 1:4].reshape(-1,3*proj_seq.shape[-1])
         return seq_emb
 
 
@@ -145,6 +146,7 @@ class SingleClassifier(nn.Module):
             ctx_emb = sent.gather(dim=1, index=idx) * ctx_mask
             ctx_emb = ctx_emb.sum(dim=1) / ctx_mask.sum(dim=1)
             ctx_embs.append(ctx_emb)
+
         final_emb = torch.cat([emb] + ctx_embs, dim=-1)
         logits = self.classifier(final_emb)
         return logits

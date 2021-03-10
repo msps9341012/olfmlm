@@ -92,16 +92,20 @@ def process_single_pair_task_split(split, indexers, is_pair=True, classification
 
     def _make_instance(input1, input2, labels, idx):
         d = {}
-        d["sent1_str"] = MetadataField(" ".join(input1[1:-1]))
+        #d["sent1_str"] = MetadataField(" ".join(input1[1:-1]))
+        d["sent1_str"] = MetadataField(" ".join(input1[4:-1]))
         if is_using_bert and is_pair:
-            inp = input1 + input2[1:]  # throw away input2 leading [CLS]
+            #inp = input1 + input2[1:]  # throw away input2 leading [CLS]
+            inp = input1 + input2[4:]
             d["inputs"] = sentence_to_text_field(inp, indexers)
-            d["sent2_str"] = MetadataField(" ".join(input2[1:-1]))
+            #d["sent2_str"] = MetadataField(" ".join(input2[1:-1]))
+            d["sent2_str"] = MetadataField(" ".join(input2[4:-1]))
         else:
             d["input1"] = sentence_to_text_field(input1, indexers)
             if input2:
                 d["input2"] = sentence_to_text_field(input2, indexers)
-                d["sent2_str"] = MetadataField(" ".join(input2[1:-1]))
+                #d["sent2_str"] = MetadataField(" ".join(input2[1:-1]))
+                d["sent2_str"] = MetadataField(" ".join(input2[4:-1]))
         if classification:
             d["labels"] = LabelField(labels, label_namespace="labels", skip_indexing=True)
         else:

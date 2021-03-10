@@ -68,7 +68,14 @@ class BertModel(torch.nn.Module):
         if args.pretrained_bert:
             print('use pretrained weight')
             self.model.bert=self.model.bert.from_pretrained('bert-base-uncased',cache_dir=args.cache_dir,config_file_path=args.bert_config_file)
-            self.model.lm.decoder.weight=self.model.bert.embeddings.word_embeddings.weight
+            if 'mf' in args.modes:
+                with torch.no_grad():
+                    self.model.lm.decoder.weight=self.model.bert.embeddings.word_embeddings.weight
+                    '''
+                    self.model.sent.mf.v_1.dense.weight=torch.nn.Parameter(self.model.bert.pooler.dense.weight.data)
+                    self.model.sent.mf.v_2.dense.weight=torch.nn.Parameter(self.model.bert.pooler.dense.weight.data)
+                    self.model.sent.mf.v_3.dense.weight=torch.nn.Parameter(self.model.bert.pooler.dense.weight.data)
+                    '''
             #self.model.bert=self.model.bert.from_pretrained('bert-base-uncased',cache_dir=args.cache_dir,config_file_path=args.bert_config_file)
             
             

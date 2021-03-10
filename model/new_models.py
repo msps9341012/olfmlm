@@ -167,6 +167,8 @@ class Bert(PreTrainedBertModel):
             self.sent["mf"]['v_1']=BertPoolerforview(config)
             self.sent["mf"]['v_2']=BertPoolerforview(config)
             self.sent["mf"]['v_3']=BertPoolerforview(config)
+            self.sent["mf"]['weighted'] = nn.Linear(config.hidden_size*2, 1)
+            self.softmax_weight=None
             
         if "fs" in modes:
             self.sent["fs"] = BertHeadTransform(config)
@@ -198,22 +200,48 @@ class Bert(PreTrainedBertModel):
             scores["so"] = self.sent["so"](pooled_output)
             
         if "mf" in modes:
+            
             half = len(input_ids[0])
             send_emb_list=[]
             recv_emb_list=[]
+            self.embedding_var_before_pool=self.var_of_embedding(sequence_output[:,1:4,:])
+            #pool_output_list=[]
+            
+            l=[]
+            r=[]
             for i in range(1,4):
+                l.append(sequence_output[:,i][:half])
+                r.append(sequence_output[:,i][half:])
+                
                 pooled_output=self.sent['mf']['v_'+str(i)](sequence_output[:,i])
+                #pool_output_list.append(pooled_output)
                 send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
                 send_emb, recv_emb = self.sent['mf']['s_'+str(i)](send_emb), self.sent['mf']['s_'+str(i)](recv_emb)
                 send_emb_list.append(send_emb)
                 recv_emb_list.append(recv_emb)
+            
+            #self.embedding_var_after_pool=self.var_of_embedding(torch.stack(pool_output_list).transpose(0,1))
+            
             send_emb_tensor=torch.stack(send_emb_list)
             recv_emb_tensor=torch.stack(recv_emb_list)
+            
             score_all=[]
+            view_all=[]
+            for i in range(3):
+                for j in range(3):
+                    view_all.append(torch.cat([l[i],r[j]],dim=1))
+            
+            self.softmax_weight=torch.stack(view_all).transpose(0,1)
+            
+            #scores["mf"]=torch.stack(view_all)
             for i in range(3):
                 score_all.append(self.cross_cos_sim(recv_emb_tensor,send_emb_tensor[i]))
+             
             
-            scores["mf"]=torch.amax(torch.stack(score_all),dim=(0,1))
+            scores["mf"]=torch.stack(score_all)
+            
+#           #torch.amax(torch.stack(score_all),dim=(0,1))
+            
                 
         if "rg" in modes:
             half = len(input_ids[0])
@@ -280,3 +308,11 @@ class Bert(PreTrainedBertModel):
         a_norm = a / a.norm(dim=2)[:, :, None]
         b_norm = b / b.norm(dim=1)[:, None]
         return torch.matmul(a_norm,b_norm.transpose(0, 1)).transpose(1,2)
+    
+    def var_of_embedding(self,inputs):
+        #(batch, facet, embedding)
+        inputs_norm = inputs-inputs.min(2, keepdim=True)[0]
+        inputs_norm= inputs_norm /inputs_norm.max(2, keepdim=True)[0]  
+        pred_mean = inputs_norm.mean(dim = 1, keepdim = True)
+        loss_set_div = - torch.mean( (inputs_norm - pred_mean).norm(dim = 2))
+        return loss_set_div

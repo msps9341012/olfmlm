@@ -12,31 +12,31 @@ from .tasks import Task
 # Task lists for handling as a group; these names correspond to the keys in
 # the task registry.
 ALL_GLUE_TASKS = [
-    "sst",
-    "cola",
-    "mrpc",
+    #"sst",
+    #"cola",
+    #"mrpc",
     "qqp",
-    "sts-b",
+    #"sts-b",
     "mnli",
-    "qnli",
-    "rte",
-    "wnli",
-    "glue-diagnostic",
+    #"qnli",
+    #"rte",
+    #"wnli",
+    #"glue-diagnostic",
 ]
 
-
-ALL_SUPERGLUE_TASKS = [
-    "boolq",
-    "commitbank",
-    "copa",
-    "multirc",
-    "record",
-    "rte-superglue",
-    "winograd-coreference",
-    "wic",
-    "broadcoverage-diagnostic",
-    "winogender-diagnostic",
-]
+ALL_SUPERGLUE_TASKS =[]
+# ALL_SUPERGLUE_TASKS = [
+#     "boolq",
+#     "commitbank",
+#     "copa",
+#     "multirc",
+#     "record",
+#     "rte-superglue",
+#     "winograd-coreference",
+#     "wic",
+#     "broadcoverage-diagnostic",
+#     "winogender-diagnostic",
+# ]
 
 ALL_DIAGNOSTICS = ["broadcoverage-diagnostic", "winogender-diagnostic", "glue-diagnostic"]
 # Tasks for the spring19_seminar; similar to cola but write predictions differently

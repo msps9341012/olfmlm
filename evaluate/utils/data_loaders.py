@@ -289,6 +289,8 @@ def get_tag_list(tag_vocab):
 def process_sentence(tokenizer_name, sent, max_seq_len):
     """process a sentence """
     max_seq_len -= 2
+    max_seq_len = max_seq_len-3
+    
     assert max_seq_len > 0, "Max sequence length should be at least 2!"
     tokenizer = get_tokenizer(tokenizer_name)
     if tokenizer_name.startswith("bert-"):
@@ -296,7 +298,7 @@ def process_sentence(tokenizer_name, sent, max_seq_len):
     else:
         sos_tok, eos_tok = SOS_TOK, EOS_TOK
     if isinstance(sent, str):
-        return [sos_tok] + tokenizer.tokenize(sent)[:max_seq_len] + [eos_tok]
+        return [sos_tok] + ["[unused0]"] + ["[unused1]"] + ["[unused2]"] + tokenizer.tokenize(sent)[:max_seq_len] + [eos_tok]
     elif isinstance(sent, list):
         assert isinstance(sent[0], str), "Invalid sentence found!"
-        return [sos_tok] + sent[:max_seq_len] + [eos_tok]
+        return [sos_tok] + ["[unused0]"] + ["[unused1]"] + ["[unused2]"] + sent[:max_seq_len] + [eos_tok]

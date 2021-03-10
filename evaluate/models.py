@@ -244,7 +244,8 @@ def build_model(args, vocab, pretrained_embs, tasks):
         # Default case, used for ELMo, CoVe, word embeddings, etc.
         d_emb, embedder, cove_layer = build_embeddings(args, vocab, tasks, pretrained_embs)
     d_sent_input = args.d_hid
-
+    
+    
     sent_encoder, d_sent_output = build_sent_encoder(
         args, vocab, d_emb, tasks, embedder, cove_layer
     )
@@ -255,7 +256,9 @@ def build_model(args, vocab, pretrained_embs, tasks):
 
     # Build model and classifiers
     model = MultiTaskModel(args, sent_encoder, vocab)
-    build_task_modules(args, tasks, model, d_task_input, d_emb, embedder, vocab)
+    
+    
+    build_task_modules(args, tasks, model, d_task_input*3, d_emb, embedder, vocab)
     model = model.cuda() if args.cuda >= 0 else model
     log.info("Model specification:")
     log.info(model)

@@ -507,6 +507,7 @@ def get_words(tasks):
 def get_vocab(word2freq, char2freq, max_v_sizes):
     """Build vocabulary by selecting the most frequent tokens"""
     vocab = Vocabulary(counter=None, max_vocab_size=max_v_sizes)
+
     for special in SPECIALS:
         vocab.add_token_to_namespace(special, "tokens")
 

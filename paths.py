@@ -6,7 +6,7 @@ bert_config_file = os.path.join(base_path, "bert_config.json")
 
 # Where you want to save models (this requires lots of space - better on hhds)
 save_path = "/iesl/canvas/rueiyaosun/"
-pretrained_path = os.path.join(save_path, "pretrained_berts")
+pretrained_path = os.path.join(save_path, "pretrained_berts_log")
 finetuned_path = os.path.join(save_path, "finetuned_berts")
 
 # Where you are loading the data from (better on ssd if possible for faster reads)

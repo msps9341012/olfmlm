@@ -9,6 +9,7 @@ from allennlp.modules import scalar_mix
 from ..model.modeling import BertModel
 from ..model.modeling import BertConfig
 
+
 from ..data_utils.wordpiece import BertTokenizer
 
 from .preprocess import parse_task_list_arg
@@ -69,6 +70,7 @@ class BertEmbedderModule(nn.Module):
     def __init__(self, args, cache_dir=None):
         super(BertEmbedderModule, self).__init__()
 
+        tokenizer = BertTokenizer.from_pretrained(args.input_module, cache_dir=cache_dir)
         if args.bert_use_pretrain:
             self.model = BertModel.from_pretrained(
                 args.input_module, cache_dir=cache_dir
@@ -76,11 +78,10 @@ class BertEmbedderModule(nn.Module):
         else:
             self.config = BertConfig(args.bert_config_file)
             self.model = BertModel(self.config)
+        
         self.embeddings_mode = args.bert_embeddings_mode
 
-        tokenizer = BertTokenizer.from_pretrained(
-            args.input_module, cache_dir=cache_dir
-        )
+
 
         self._cls_id = tokenizer.vocab["[CLS]"]
         self._sep_id = tokenizer.vocab["[SEP]"]
@@ -163,6 +164,7 @@ class BertEmbedderModule(nn.Module):
             # <float32> [batch_size, seq_len, output_dim]
             token_types = _get_seg_ids(ids, self._sep_id) if is_pair_task else torch.zeros_like(ids)
             u, _ = self.model(ids, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)
+            
             h_enc = u
 
         if self.embeddings_mode in ["none", "top"]:

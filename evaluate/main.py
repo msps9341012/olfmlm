@@ -511,10 +511,14 @@ def main(cl_arguments):
     """ Train a model for multitask-training."""
     cl_args = handle_arguments(cl_arguments)
     args = config.params_from_file(cl_args.config_file, cl_args.overrides)
+    
+    
     add_required_args(args, cl_args)
     # Check for deprecated arg names
     check_arg_name(args)
     args, seed = initial_setup(args, cl_args)
+    
+       
     # Load tasks
     log.info("Loading tasks...")
     start_time = time.time()
@@ -522,7 +526,7 @@ def main(cl_arguments):
     tasks = sorted(set(pretrain_tasks + target_tasks), key=lambda x: x.name)
     log.info("\tFinished loading tasks in %.3fs", time.time() - start_time)
     log.info("\t Tasks: {}".format([task.name for task in tasks]))
-
+    
     # Build model
     log.info("Building model...")
     start_time = time.time()

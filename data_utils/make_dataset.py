@@ -148,10 +148,11 @@ def process_document(document, doc_length, tokenizer=None):
         # Append write data
         writes += [doc_bytes + doc_separator]
         str_lens.append(str_cnt + 1)  # + 1 for doc separator
-
+    '''
     print("-" * 100)
     for w in writes:
         print(w.decode('utf-8'))
+    '''
 
     return writes, str_lens, tok_total, word_total, sentence_total, document_total
 
@@ -178,7 +179,7 @@ class DatasetWriter:
         self.from_text_files = from_text_files
         self.doc_separator = "\n".encode('utf-8')
         self.name = name
-        self.base_path = ""#TOFILL
+        self.base_path = "/iesl/canvas/rueiyaosun/train_data/" #TOFILL
         self.lazy_path = os.path.join(self.base_path, self.name + ".lazy/")
         if not os.path.exists(self.lazy_path):
             os.makedirs(self.lazy_path)
@@ -319,7 +320,7 @@ class DatasetWriter:
         input_files = []
         for p in read_paths:
             input_files += [os.path.join(p, fn) for fn in os.listdir(p)]
-
+        print(input_files)
         for input_file in tqdm(input_files):
             with open(input_file, 'r',encoding="utf-8", errors="ignore") as in_f:
                 paragraphs = self.convert_into_sentences(in_f)
@@ -390,8 +391,8 @@ class FilterDataset(data.Dataset):
 if __name__ == "__main__":
     # base_read_path = "/scratch/gobi1/datasets/NLP-Corpus/CNN_dailymail/"
     # read_path_extension = ["cnn/stories/", "dailymail/stories/"]
-    base_read_path = ['wikipedia', 'bookcorpus']  # "/h//bookcorpus_clean"
-    read_path_extension = None  # ["books_large_p1_clean.txt", "books_large_p2_clean.txt"]
-    with DatasetWriter("bert_corpus_2", base_read_path, read_path_extension, from_text_files=False,
+    base_read_path = '/iesl/canvas/rueiyaosun/'  # "/h//bookcorpus_clean"
+    read_path_extension = ['wiki','book']  # ["books_large_p1_clean.txt", "books_large_p2_clean.txt"]
+    with DatasetWriter("bert_corpus_3", base_read_path, read_path_extension, from_text_files=True,
                        split_on_newlines=True) as dw:
         dw.create()

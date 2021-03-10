@@ -96,10 +96,12 @@ def setup_model_and_optimizer(args, tokenizer):
     model = get_model(tokenizer, args)
     optimizer = get_optimizer(model, args)
     lr_scheduler = get_learning_rate_scheduler(optimizer, args)
+    
     criterion_cls = torch.nn.CrossEntropyLoss(reduce=False, ignore_index=-1)
     criterion_reg = torch.nn.MSELoss(reduce=False)
+    criterion_nll=torch.nn.NLLLoss(reduce=False, ignore_index=-1)
 
-    criterion = (criterion_cls, criterion_reg)
+    criterion = (criterion_cls, criterion_reg, criterion_nll)
 
     if args.load is not None:
         args.epoch = load_checkpoint(model, optimizer, lr_scheduler, args)
@@ -149,13 +151,15 @@ def get_batch(data):
 
 def forward_step(data, model, criterion, modes, args):
     """Forward step."""
-    criterion_cls, criterion_reg = criterion
+    criterion_cls, criterion_reg, criterion_nll = criterion
     # Get the batch.
     batch = get_batch(data)
     tokens, types, tasks, aux_labels, loss_mask, tgs_mask, lm_labels, att_mask, num_tokens = batch
     # Create self-supervised labels which required batch size
     if "rg" in modes:
         aux_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
+    if "mf" in modes:
+        aux_labels['mf']=torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
     if "fs" in modes:
         aux_labels['fs'] = torch.autograd.Variable(torch.ones(tokens[0].shape[0] * 2 * args.seq_length).long()).cuda()
     # Forward model.
@@ -178,6 +182,32 @@ def forward_step(data, model, criterion, modes, args):
         elif mode in ["fs", "wlen", "tf", "tf_idf"]: # use regression
             losses[mode] = criterion_reg(score.view(-1).contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous().float()).mean()
+        elif mode=="mf":
+            if args.agg_function=="max":
+                score=torch.amax(score,dim=(0,1))
+                losses[mode] = criterion_cls(score.contiguous().float(), aux_labels[mode].view(-1).contiguous()).mean()
+                
+            elif args.agg_function=="softmax":
+                score=torch.nn.functional.softmax(score,dim=3).mean(dim=(0,1))
+                score=torch.log(score)
+                losses[mode]=criterion_nll(score.contiguous().float(), aux_labels[mode].view(-1).contiguous()).mean()
+                
+            elif args.agg_function=="logsum":
+                score=torch.logsumexp(score,dim=(0,1))
+                losses[mode] = criterion_cls(score.contiguous().float(), aux_labels[mode].view(-1).contiguous()).mean()
+            elif args.agg_function=='w_softmax':
+                
+                score=torch.nn.functional.softmax(score,dim=3)
+                softmax_weight=model.model.sent['mf']['weighted'](model.model.softmax_weight) #16,9,1
+                
+                softmax_weight=torch.nn.functional.softmax(softmax_weight,dim=1).reshape(-1,3,3) #16,3,3
+                softmax_weight=softmax_weight.transpose(0,2).unsqueeze(dim=3) #3,3,16,1
+                
+                score=torch.mul(score,softmax_weight).sum(dim=(0,1))
+                
+                score=torch.log(score)
+                losses[mode]=criterion_nll(score.contiguous().float(), aux_labels[mode].view(-1).contiguous()).mean()
+
         else:
             score = score.view(-1, 2) if mode in ["tc", "cap"] else score
             losses[mode] = criterion_cls(score.contiguous().float(),
@@ -385,6 +415,12 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
            
         # Logging.
         if log_tokens > args.log_interval:
+            
+#             print(model.model.bert.pooler.dense.weight)
+#             print(model.model.sent.mf.v_1.dense.weight)
+#             print(model.model.sent.mf.v_2.dense.weight)
+#             print(model.model.sent.mf.v_3.dense.weight)
+            
             log_tokens = 0
             learning_rate = optimizer.param_groups[0]['lr']
             avg_loss = {}
@@ -403,11 +439,13 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             print(log_string, flush=True)
             #print(iteration)
             total_losses = {}
-
             experiment.set_step((epoch - 1) * max_tokens + tot_tokens)
             metrics['learning_rate'] = learning_rate
             for mode, v in avg_loss.items():
                 metrics[mode] = v
+            if "mf" in modes:
+                metrics['var_before_pool']=model.model.embedding_var_before_pool
+                #metrics['var_after_pool']=model.model.embedding_var_after_pool
 
             experiment.log_metrics(metrics)
             #tot_iteration += iteration
@@ -521,12 +559,13 @@ def main():
 
     # Arguments.
     args = get_args()
-
-    experiment = Experiment(api_key='1jl4lQOnJsVdZR6oekS6WO5FI',
+    
+    experiment = Experiment(api_key='Bq7FWdV8LPx8HkWh67e5UmUPm',
                            project_name=args.model_type,
                            auto_param_logging=False, auto_metric_logging=False,
                            disabled=(not args.track_results))
     experiment.log_parameters(vars(args))
+    
     metrics = {}
 
     # Pytorch distributed.

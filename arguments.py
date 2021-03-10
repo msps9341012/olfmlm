@@ -65,6 +65,7 @@ def add_model_config_args(parser):
                        'tokenization. This value will only be used when '
                        'creating a tokenizer')
     group.add_argument('--bert-config-file', type=str, default=bert_config_file)
+    group.add_argument('--agg-function', type=str, default="max")
 
     return parser
 
@@ -281,7 +282,7 @@ def get_args():
             args.modes = "mlm"
         else:
             args.modes = "mlm," + args.model_type
-    if "rg" in args.modes or "fs" in args.modes:
+    if "rg" in args.modes or "fs" in args.modes or "mf" in args.modes:
         args.batch_size = args.batch_size // 2
     if args.num_workers is None:
         # Find number of cpus available (taken from second answer):
