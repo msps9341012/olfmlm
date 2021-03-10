@@ -127,12 +127,13 @@ class Bert(PreTrainedBertModel):
     ```
     """
 
-    def __init__(self, config, modes=["mlm"]):
+    def __init__(self, config, modes=["mlm"],facet=0):
         super(Bert, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertLMTokenHead(config, self.bert.embeddings.word_embeddings.weight)
         self.sent = torch.nn.ModuleDict()
         self.tok = torch.nn.ModuleDict()
+        self.facet=facet
         if "nsp" in modes:
             self.sent["nsp"] = BertSentHead(config, num_classes=2)
         if "psp" in modes:
@@ -160,13 +161,11 @@ class Bert(PreTrainedBertModel):
             self.sent["rg"] = BertHeadTransform(config)
         if "mf" in modes:
             self.sent["mf"] = torch.nn.ModuleDict()
-            self.sent["mf"]['s_1']=BertHeadTransform(config)
-            self.sent["mf"]['s_2']=BertHeadTransform(config)
-            self.sent["mf"]['s_3']=BertHeadTransform(config)
-            
-            self.sent["mf"]['v_1']=BertPoolerforview(config)
-            self.sent["mf"]['v_2']=BertPoolerforview(config)
-            self.sent["mf"]['v_3']=BertPoolerforview(config)
+
+            for i in range(self.facet):
+                self.sent["mf"]['s_'+str(i+1)]=BertHeadTransform(config)
+                self.sent["mf"]['v_'+str(i+1)]=BertPoolerforview(config)
+
             self.sent["mf"]['weighted'] = nn.Linear(config.hidden_size*2, 1)
             self.softmax_weight=None
             
@@ -204,12 +203,12 @@ class Bert(PreTrainedBertModel):
             half = len(input_ids[0])
             send_emb_list=[]
             recv_emb_list=[]
-            self.embedding_var_before_pool=self.var_of_embedding(sequence_output[:,1:4,:])
+            self.embedding_var_before_pool=self.var_of_embedding(sequence_output[:,1:(self.facet+1),:])
             #pool_output_list=[]
             
             l=[]
             r=[]
-            for i in range(1,4):
+            for i in range(1,self.facet+1):
                 l.append(sequence_output[:,i][:half])
                 r.append(sequence_output[:,i][half:])
                 
@@ -227,14 +226,14 @@ class Bert(PreTrainedBertModel):
             
             score_all=[]
             view_all=[]
-            for i in range(3):
-                for j in range(3):
+            for i in range(self.facet):
+                for j in range(self.facet):
                     view_all.append(torch.cat([l[i],r[j]],dim=1))
             
             self.softmax_weight=torch.stack(view_all).transpose(0,1)
             
             #scores["mf"]=torch.stack(view_all)
-            for i in range(3):
+            for i in range(self.facet):
                 score_all.append(self.cross_cos_sim(recv_emb_tensor,send_emb_tensor[i]))
              
             

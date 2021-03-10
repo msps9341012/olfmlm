@@ -498,9 +498,10 @@ class bert_dataset(data.Dataset):
     def __len__(self):
         return self.ds_len
 
-    def set_args(self, modes):
-        print("setting up args, modes:", modes)
+    def set_args(self, modes, facet=0):
+        print("setting up args, modes using facet", modes, facet)
         self.modes = modes
+        self.facet = facet
         self.split_percent = 1.0
         self.corruption_rate = 0.
         self.num_sent_per_seq = 1
@@ -685,7 +686,7 @@ class bert_dataset(data.Dataset):
         max_num_tokens = self.max_seq_len - 2
         
         if 'mf' in self.modes:
-            max_num_tokens=max_num_tokens-3
+            max_num_tokens=max_num_tokens-self.facet
             
         while True:
             if len(tokens) <= max_num_tokens:
@@ -986,9 +987,19 @@ class bert_dataset(data.Dataset):
             # Add start and end tokens ('CLS' and 'SEP' respectively)
             #add mf
             if "mf" in self.modes:
-                tokens[i] = [self.tokenizer.get_command('ENC').Id] + [self.tokenizer.get_command('s_1').Id] +[self.tokenizer.get_command('s_2').Id] + [self.tokenizer.get_command('s_3').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
+                
+                extra_word=[]
+                for v in range(self.facet):
+                    
+                    extra_word+=[self.tokenizer.get_command('s_'+str(v+1)).Id]
+                
+                tokens[i] = [self.tokenizer.get_command('ENC').Id] + extra_word +  tokens[i] +   [self.tokenizer.get_command('sep').Id]
+                
+                token_types[i] = [token_types[i][0]] + [token_types[i][0]]*self.facet + token_types[i] + [token_types[i][0]]
+                #[self.tokenizer.get_command('s_1').Id] +[self.tokenizer.get_command('s_2').Id] + [self.tokenizer.get_command('s_3').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
+                
                 #add 3 types for views
-                token_types[i] = [token_types[i][0]] + [token_types[i][0]]*3 + token_types[i] + [token_types[i][0]]
+                #token_types[i] = [token_types[i][0]] + [token_types[i][0]]*3 + token_types[i] + [token_types[i][0]]
                 
             else:
                 tokens[i] = [self.tokenizer.get_command('ENC').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
@@ -1009,6 +1020,13 @@ class bert_dataset(data.Dataset):
             mask[i] = [0] * len(tokens[i])
             mask_labels[i] = [-1] * len(tokens[i])
             num_masked, ci = 0, 0
+            
+            not_mast_token_lists=[self.tokenizer.get_command('ENC').Id, self.tokenizer.get_command('sep').Id, 
+                                  self.tokenizer.get_command('pad').Id]
+            
+            for v in range(self.facet):
+                not_mast_token_lists.append(self.tokenizer.get_command('s_'+str(v+1)).Id)
+            
             while num_masked < num_to_predict:
                 idx = cand_indices[ci]
                 ci += 1

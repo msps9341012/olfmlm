@@ -699,18 +699,26 @@ class BertWordPieceTokenizer(Tokenizer):
         self.num_tokens = len(self.text_tokenizer.vocab)
         self.num_text_tokens = self.num_tokens-5
         self.num_type_tokens = 2
+        
+        if 'number_of_facets' in kwargs:
+            number_of_facets = kwargs['number_of_facets']
 
         self._command_tokens = [
             CommandToken('pad', '[PAD]', self.text_tokenizer.vocab['[PAD]']),
             CommandToken('ENC', '[CLS]', self.text_tokenizer.vocab['[CLS]']),
             CommandToken('MASK', '[MASK]', self.text_tokenizer.vocab['[MASK]']),
             CommandToken('unk', '[UNK]', self.text_tokenizer.vocab['[UNK]']),
-            CommandToken('sep', '[SEP]', self.text_tokenizer.vocab['[SEP]']),
-            CommandToken('s_1', '[unused0]', self.text_tokenizer.vocab['[unused0]']),
-            CommandToken('s_2', '[unused1]', self.text_tokenizer.vocab['[unused1]']),
-            CommandToken('s_3', '[unused2]', self.text_tokenizer.vocab['[unused2]']),
+            CommandToken('sep', '[SEP]', self.text_tokenizer.vocab['[SEP]'])]
+                    
+        for i in range(number_of_facets):
+            self._command_tokens.append(CommandToken('s_{d}'.format(d=i+1), "[unused{d}]".format(d=i), self.text_tokenizer.vocab["[unused{d}]".format(d=i)]))
+        
+        print('Adding '+str(number_of_facets)+' facets')
+
             
-        ]
+        #CommandToken('s_1', '[unused0]', self.text_tokenizer.vocab['[unused0]']),
+            
+        
         self.command_name_map = {tok.name: tok for tok in self._command_tokens}
         self.command_token_map = {tok.token: tok for tok in self._command_tokens}
         self.command_id_map = {tok.Id: tok for tok in self._command_tokens}

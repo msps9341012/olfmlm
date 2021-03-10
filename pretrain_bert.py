@@ -145,6 +145,7 @@ def get_batch(data):
     lm_labels = torch.autograd.Variable(torch.cat(lm_labels, dim=0).long()).cuda()
     loss_mask = torch.autograd.Variable(torch.cat(loss_mask, dim=0).float()).cuda()
     tgs_mask = torch.autograd.Variable(torch.cat(tgs_mask, dim=0).float()).cuda()
+    
 
     return (tokens, types, tasks, aux_labels, loss_mask, tgs_mask, lm_labels, att_mask, num_tokens)
 
@@ -155,6 +156,8 @@ def forward_step(data, model, criterion, modes, args):
     # Get the batch.
     batch = get_batch(data)
     tokens, types, tasks, aux_labels, loss_mask, tgs_mask, lm_labels, att_mask, num_tokens = batch
+    
+        
     # Create self-supervised labels which required batch size
     if "rg" in modes:
         aux_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
@@ -164,6 +167,7 @@ def forward_step(data, model, criterion, modes, args):
         aux_labels['fs'] = torch.autograd.Variable(torch.ones(tokens[0].shape[0] * 2 * args.seq_length).long()).cuda()
     # Forward model.
     scores = model(modes, tokens, types, tasks, att_mask, checkpoint_activations=args.checkpoint_activations)
+    breakpoint()
     assert sorted(list(scores.keys())) == sorted(modes)
 
     # Calculate losses based on required criterion
@@ -200,7 +204,7 @@ def forward_step(data, model, criterion, modes, args):
                 score=torch.nn.functional.softmax(score,dim=3)
                 softmax_weight=model.model.sent['mf']['weighted'](model.model.softmax_weight) #16,9,1
                 
-                softmax_weight=torch.nn.functional.softmax(softmax_weight,dim=1).reshape(-1,3,3) #16,3,3
+                softmax_weight=torch.nn.functional.softmax(softmax_weight,dim=1).reshape(-1,args.facet,args.facet) #16,3,3
                 softmax_weight=softmax_weight.transpose(0,2).unsqueeze(dim=3) #3,3,16,1
                 
                 score=torch.mul(score,softmax_weight).sum(dim=(0,1))
@@ -345,7 +349,8 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     if args.incremental:
         modes = modes[:epoch]
 
-    train_data.dataset.set_args(modes)
+    train_data.dataset.set_args(modes, args.facet)
+
     sent_tasks = [m for m in modes if m in train_data.dataset.sentence_tasks]
     tok_tasks = [m for m in modes if m not in train_data.dataset.sentence_tasks + ["mlm"]]
 
@@ -464,7 +469,9 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
     max_tokens = args.eval_tokens
     tokens = 0
     modes = args.modes.split(',')
-    data_source.dataset.set_args(modes)
+    
+    data_source.dataset.set_args(modes, args.facet)
+    
     data_iters = iter(data_source)
     with torch.no_grad():
         iteration = 0
@@ -559,12 +566,12 @@ def main():
 
     # Arguments.
     args = get_args()
-    
-    experiment = Experiment(api_key='Bq7FWdV8LPx8HkWh67e5UmUPm',
-                           project_name=args.model_type,
-                           auto_param_logging=False, auto_metric_logging=False,
-                           disabled=(not args.track_results))
-    experiment.log_parameters(vars(args))
+    experiment=None
+#     experiment = Experiment(api_key='Bq7FWdV8LPx8HkWh67e5UmUPm',
+#                            project_name=args.model_type,
+#                            auto_param_logging=False, auto_metric_logging=False,
+#                            disabled=(not args.track_results))
+#     experiment.log_parameters(vars(args))
     
     metrics = {}
 

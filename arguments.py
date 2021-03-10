@@ -66,6 +66,7 @@ def add_model_config_args(parser):
                        'creating a tokenizer')
     group.add_argument('--bert-config-file', type=str, default=bert_config_file)
     group.add_argument('--agg-function', type=str, default="max")
+    group.add_argument('--facet', type=int, default=0)
 
     return parser
 
@@ -276,7 +277,7 @@ def get_args():
     parser = add_data_args(parser)
 
     args = parser.parse_args()
-
+    
     if args.modes is None:
         if args.model_type == "mlm":
             args.modes = "mlm"
@@ -284,6 +285,9 @@ def get_args():
             args.modes = "mlm," + args.model_type
     if "rg" in args.modes or "fs" in args.modes or "mf" in args.modes:
         args.batch_size = args.batch_size // 2
+    
+    assert 'mf' in args.modes and args.facet>0, "facet should larger than 0 when using mf"
+    
     if args.num_workers is None:
         # Find number of cpus available (taken from second answer):
         # https://stackoverflow.com/questions/1006289/how-to-find-out-the-number-of-cpus-using-python
@@ -293,7 +297,7 @@ def get_args():
         args.num_workers = int(nw - 2) # leave cpu for main process
 
     assert not ((args.continual_learning and args.alternating) or (args.continual_learning and args.incremental))
-
+    
     args.model_type += '_inc' if args.incremental else ''
     args.model_type += '_alt' if args.alternating else ''
     args.model_type += '_cmt' if args.continual_learning else ''

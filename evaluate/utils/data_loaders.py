@@ -95,6 +95,7 @@ def load_tsv(
     filter_value=None,
     tag_vocab=None,
     tag2idx_dict=None,
+    facet_list=None
 ):
     """
     Load a tsv.
@@ -143,11 +144,11 @@ def load_tsv(
     if has_labels:
         mask = mask & rows[label_idx].notnull()
     rows = rows.loc[mask]
-    sent1s = rows[s1_idx].apply(lambda x: process_sentence(tokenizer_name, x, max_seq_len))
+    sent1s = rows[s1_idx].apply(lambda x: process_sentence(tokenizer_name, x, max_seq_len, facet_list))
     if s2_idx is None:
         sent2s = pd.Series()
     else:
-        sent2s = rows[s2_idx].apply(lambda x: process_sentence(tokenizer_name, x, max_seq_len))
+        sent2s = rows[s2_idx].apply(lambda x: process_sentence(tokenizer_name, x, max_seq_len, facet_list))
 
     label_fn = label_fn if label_fn is not None else (lambda x: x)
     if has_labels:
@@ -236,8 +237,8 @@ def load_diagnostic_tsv(
         rows[col_name] = rows[col_name].apply(lambda x: [word_to_idx[x]] if x != "" else [])
         return word_to_idx, idx_to_word, rows[col_name]
 
-    sent1s = rows[s1_col].apply(lambda x: process_sentence(tokenizer_name, x, max_seq_len))
-    sent2s = rows[s2_col].apply(lambda x: process_sentence(tokenizer_name, x, max_seq_len))
+    sent1s = rows[s1_col].apply(lambda x: process_sentence(tokenizer_name, x, max_seq_len, facet_list))
+    sent2s = rows[s2_col].apply(lambda x: process_sentence(tokenizer_name, x, max_seq_len, facet_list))
     labels = rows[label_col].apply(lambda x: label_fn(x))
     # Build indices for field attributes
     lex_sem_to_ix_dic, ix_to_lex_sem_dic, lex_sem = targs_to_idx("Lexical Semantics")
@@ -286,10 +287,11 @@ def get_tag_list(tag_vocab):
     return tag_list
 
 
-def process_sentence(tokenizer_name, sent, max_seq_len):
+def process_sentence(tokenizer_name, sent, max_seq_len, facet_list=None):
     """process a sentence """
     max_seq_len -= 2
-    max_seq_len = max_seq_len-3
+    if facet_list:
+        max_seq_len = max_seq_len-len(facet_list)
     
     assert max_seq_len > 0, "Max sequence length should be at least 2!"
     tokenizer = get_tokenizer(tokenizer_name)
@@ -298,7 +300,7 @@ def process_sentence(tokenizer_name, sent, max_seq_len):
     else:
         sos_tok, eos_tok = SOS_TOK, EOS_TOK
     if isinstance(sent, str):
-        return [sos_tok] + ["[unused0]"] + ["[unused1]"] + ["[unused2]"] + tokenizer.tokenize(sent)[:max_seq_len] + [eos_tok]
+        return [sos_tok] + facet_list + tokenizer.tokenize(sent)[:max_seq_len] + [eos_tok]
     elif isinstance(sent, list):
         assert isinstance(sent[0], str), "Invalid sentence found!"
-        return [sos_tok] + ["[unused0]"] + ["[unused1]"] + ["[unused2]"] + sent[:max_seq_len] + [eos_tok]
+        return [sos_tok] + facet_list + sent[:max_seq_len] + [eos_tok]

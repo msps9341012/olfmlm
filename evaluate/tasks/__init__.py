@@ -13,11 +13,11 @@ from .tasks import Task
 # the task registry.
 ALL_GLUE_TASKS = [
     #"sst",
-    #"cola",
+    "cola",
     #"mrpc",
-    "qqp",
+    #"qqp",
     #"sts-b",
-    "mnli",
+    #"mnli",
     #"qnli",
     #"rte",
     #"wnli",

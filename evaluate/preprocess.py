@@ -399,6 +399,7 @@ def _get_task(name, args, data_path, scratch_path):
     pkl_path = os.path.join(scratch_path, "tasks", f"{name:s}.{args.tokenizer:s}.pkl")
     # TODO: refactor to always read from disk, even if task is constructed
     # here. This should avoid subtle bugs from deserialization issues.
+    args.reload_tasks=1
     if os.path.isfile(pkl_path) and not args.reload_tasks:
         print(pkl_path)
         task = pkl.load(open(pkl_path, "rb"))
@@ -418,7 +419,9 @@ def _get_task(name, args, data_path, scratch_path):
             tokenizer_name=args.tokenizer,
             **task_kw,
         )
+        task.facet=args.facet
         task.load_data()
+        #breakpoint()
         utils.maybe_make_dir(os.path.dirname(pkl_path))
         pkl.dump(task, open(pkl_path, "wb"))
 

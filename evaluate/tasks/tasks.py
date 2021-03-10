@@ -54,6 +54,13 @@ UNK_TOK_ALLENNLP = "@@UNKNOWN@@"
 UNK_TOK_ATOMIC = "UNKNOWN"  # an unk token that won't get split by tokenizers
 
 
+def generate_extra_tokens(facet):
+    facet_list=[]
+    for i in range(facet):
+        facet_list.append("[unused{d}]".format(d=i))
+    return facet_list
+
+
 def sentence_to_text_field(sent: Sequence[str], indexers: Any):
     """ Helper function to map a sequence of tokens into a sequence of
     AllenNLP Tokens, then wrap in a TextField with the given indexers """
@@ -73,7 +80,7 @@ def atomic_tokenize(
     return sent
 
 
-def process_single_pair_task_split(split, indexers, is_pair=True, classification=True):
+def process_single_pair_task_split(split, indexers, is_pair=True, classification=True, facet=0):
     """
     Convert a dataset of sentences into padded sequences of indices. Shared
     across several classes.
@@ -92,20 +99,20 @@ def process_single_pair_task_split(split, indexers, is_pair=True, classification
 
     def _make_instance(input1, input2, labels, idx):
         d = {}
-        #d["sent1_str"] = MetadataField(" ".join(input1[1:-1]))
-        d["sent1_str"] = MetadataField(" ".join(input1[4:-1]))
+        d["sent1_str"] = MetadataField(" ".join(input1[1+facet:-1]))
+        #d["sent1_str"] = MetadataField(" ".join(input1[4:-1]))
         if is_using_bert and is_pair:
-            #inp = input1 + input2[1:]  # throw away input2 leading [CLS]
-            inp = input1 + input2[4:]
+            inp = input1 + input2[1+facet:]  # throw away input2 leading [CLS]
+            #inp = input1 + input2[4:]
             d["inputs"] = sentence_to_text_field(inp, indexers)
             #d["sent2_str"] = MetadataField(" ".join(input2[1:-1]))
-            d["sent2_str"] = MetadataField(" ".join(input2[4:-1]))
+            d["sent2_str"] = MetadataField(" ".join(input2[1+facet:-1]))
         else:
             d["input1"] = sentence_to_text_field(input1, indexers)
             if input2:
                 d["input2"] = sentence_to_text_field(input2, indexers)
                 #d["sent2_str"] = MetadataField(" ".join(input2[1:-1]))
-                d["sent2_str"] = MetadataField(" ".join(input2[4:-1]))
+                d["sent2_str"] = MetadataField(" ".join(input2[1+facet:-1]))
         if classification:
             d["labels"] = LabelField(labels, label_namespace="labels", skip_indexing=True)
         else:
@@ -206,6 +213,7 @@ class Task(object):
         self.sentences = None
         self.example_counts = None
         self.contributes_to_aggregate_score = True
+        self.facet=0
 
     def load_data(self):
         """ Load data from path and create splits. """
@@ -422,6 +430,8 @@ class SSTTask(SingleClassificationTask):
 
     def load_data(self):
         """ Load data """
+        facet_list=generate_extra_tokens(self.facet)
+        
         self.train_data_text = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -430,6 +440,7 @@ class SSTTask(SingleClassificationTask):
             s2_idx=None,
             label_idx=1,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -439,6 +450,7 @@ class SSTTask(SingleClassificationTask):
             s2_idx=None,
             label_idx=1,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.test_data_text = load_tsv(
             self._tokenizer_name,
@@ -449,6 +461,7 @@ class SSTTask(SingleClassificationTask):
             has_labels=False,
             return_indices=True,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.sentences = self.train_data_text[0] + self.val_data_text[0]
         log.info("\tFinished loading SST data.")
@@ -529,6 +542,7 @@ class CoLANPITask(SingleClassificationTask):
 
     def load_data(self):
         """Load the data"""
+        facet_list=generate_extra_tokens(self.facet)
         self.train_data_text = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -536,6 +550,7 @@ class CoLANPITask(SingleClassificationTask):
             s1_idx=3,
             s2_idx=None,
             label_idx=1,
+            facet_list=facet_list
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -544,6 +559,7 @@ class CoLANPITask(SingleClassificationTask):
             s1_idx=3,
             s2_idx=None,
             label_idx=1,
+            facet_list=facet_list
         )
         self.test_data_text = load_tsv(
             self._tokenizer_name,
@@ -552,6 +568,7 @@ class CoLANPITask(SingleClassificationTask):
             s1_idx=3,
             s2_idx=None,
             label_idx=1,
+            facet_list=facet_list
         )
         self.sentences = self.train_data_text[0] + self.val_data_text[0]
         log.info("\tFinished loading NPI Data.")
@@ -590,6 +607,9 @@ class CoLATask(SingleClassificationTask):
 
     def load_data(self):
         """Load the data"""
+        #breakpoint()
+        facet_list=generate_extra_tokens(self.facet)
+        
         self.train_data_text = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -597,6 +617,7 @@ class CoLATask(SingleClassificationTask):
             s1_idx=3,
             s2_idx=None,
             label_idx=1,
+            facet_list=facet_list
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -605,6 +626,7 @@ class CoLATask(SingleClassificationTask):
             s1_idx=3,
             s2_idx=None,
             label_idx=1,
+            facet_list=facet_list
         )
         self.test_data_text = load_tsv(
             self._tokenizer_name,
@@ -615,6 +637,7 @@ class CoLATask(SingleClassificationTask):
             has_labels=False,
             return_indices=True,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.sentences = self.train_data_text[0] + self.val_data_text[0]
         log.info("\tFinished loading CoLA.")
@@ -655,6 +678,7 @@ class CoLAAnalysisTask(SingleClassificationTask):
         """Load the data"""
         # Load data from tsv
         tag_vocab = vocabulary.Vocabulary(counter=None)
+        facet_list=generate_extra_tokens(self.facet)
         tr_data = load_tsv(
             tokenizer_name=self._tokenizer_name,
             data_file=os.path.join(self.path, "train_analysis.tsv"),
@@ -665,6 +689,7 @@ class CoLAAnalysisTask(SingleClassificationTask):
             skip_rows=1,
             tag2idx_dict={"Domain": 1},
             tag_vocab=tag_vocab,
+            facet_list=facet_list
         )
         val_data = load_tsv(
             tokenizer_name=self._tokenizer_name,
@@ -693,6 +718,7 @@ class CoLAAnalysisTask(SingleClassificationTask):
                 "Violations": 18,
             },
             tag_vocab=tag_vocab,
+            facet_list=facet_list
         )
         te_data = load_tsv(
             tokenizer_name=self._tokenizer_name,
@@ -704,6 +730,7 @@ class CoLAAnalysisTask(SingleClassificationTask):
             skip_rows=1,
             tag2idx_dict={"Domain": 1},
             tag_vocab=tag_vocab,
+            facet_list=facet_list
         )
         self.train_data_text = tr_data[:1] + tr_data[2:]
         self.val_data_text = val_data[:1] + val_data[2:]
@@ -781,6 +808,8 @@ class QQPTask(PairClassificationTask):
 
     def load_data(self):
         """Process the dataset located at data_file."""
+        facet_list=generate_extra_tokens(self.facet)
+        
         self.train_data_text = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -790,6 +819,7 @@ class QQPTask(PairClassificationTask):
             label_idx=5,
             label_fn=int,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -800,6 +830,7 @@ class QQPTask(PairClassificationTask):
             label_idx=5,
             label_fn=int,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.test_data_text = load_tsv(
             self._tokenizer_name,
@@ -810,6 +841,7 @@ class QQPTask(PairClassificationTask):
             has_labels=False,
             return_indices=True,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.sentences = (
             self.train_data_text[0]
@@ -854,6 +886,9 @@ class MultiNLISingleGenreTask(PairClassificationTask):
     def load_data(self):
         """Process the dataset located at path. We only use the in-genre matche data."""
         targ_map = {"neutral": 0, "entailment": 1, "contradiction": 2}
+        
+        facet_list=generate_extra_tokens(self.facet)
+        
         self.train_data_text = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -866,6 +901,7 @@ class MultiNLISingleGenreTask(PairClassificationTask):
             skip_rows=1,
             filter_idx=3,
             filter_value=self.genre,
+            facet_list=facet_list
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -879,6 +915,7 @@ class MultiNLISingleGenreTask(PairClassificationTask):
             skip_rows=1,
             filter_idx=3,
             filter_value=self.genre,
+            facet_list=facet_list
         )
         self.test_data_text = load_tsv(
             self._tokenizer_name,
@@ -891,6 +928,7 @@ class MultiNLISingleGenreTask(PairClassificationTask):
             skip_rows=1,
             filter_idx=3,
             filter_value=self.genre,
+            facet_list=facet_list
         )
         self.sentences = (
             self.train_data_text[0]
@@ -925,6 +963,8 @@ class MRPCTask(PairClassificationTask):
 
     def load_data(self):
         """ Process the dataset located at path.  """
+        facet_list=generate_extra_tokens(self.facet)
+        
         self.train_data_text = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -933,6 +973,7 @@ class MRPCTask(PairClassificationTask):
             s2_idx=4,
             label_idx=0,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -942,6 +983,7 @@ class MRPCTask(PairClassificationTask):
             s2_idx=4,
             label_idx=0,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.test_data_text = load_tsv(
             self._tokenizer_name,
@@ -952,6 +994,7 @@ class MRPCTask(PairClassificationTask):
             has_labels=False,
             return_indices=True,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.sentences = (
             self.train_data_text[0]
@@ -998,6 +1041,8 @@ class STSBTask(PairRegressionTask):
 
     def load_data(self):
         """ Load data """
+        facet_list=generate_extra_tokens(self.facet)
+        
         self.train_data_text = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -1007,6 +1052,7 @@ class STSBTask(PairRegressionTask):
             s2_idx=8,
             label_idx=9,
             label_fn=lambda x: float(x) / 5,
+            facet_list=facet_list
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1017,6 +1063,7 @@ class STSBTask(PairRegressionTask):
             s2_idx=8,
             label_idx=9,
             label_fn=lambda x: float(x) / 5,
+            facet_list=facet_list
         )
         self.test_data_text = load_tsv(
             self._tokenizer_name,
@@ -1027,6 +1074,7 @@ class STSBTask(PairRegressionTask):
             has_labels=False,
             return_indices=True,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.sentences = (
             self.train_data_text[0]
@@ -1059,6 +1107,7 @@ class SNLITask(PairClassificationTask):
     def load_data(self):
         """ Process the dataset located at path.  """
         targ_map = {"neutral": 0, "entailment": 1, "contradiction": 2}
+        facet_list=generate_extra_tokens(self.facet)
         self.train_data_text = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -1068,6 +1117,7 @@ class SNLITask(PairClassificationTask):
             s2_idx=8,
             label_idx=10,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1078,6 +1128,7 @@ class SNLITask(PairClassificationTask):
             s2_idx=8,
             label_idx=10,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.test_data_text = load_tsv(
             self._tokenizer_name,
@@ -1088,6 +1139,7 @@ class SNLITask(PairClassificationTask):
             has_labels=False,
             return_indices=True,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.sentences = (
             self.train_data_text[0]
@@ -1117,6 +1169,8 @@ class MultiNLITask(PairClassificationTask):
     def load_data(self):
         """Process the dataset located at path."""
         targ_map = {"neutral": 0, "entailment": 1, "contradiction": 2}
+        facet_list=generate_extra_tokens(self.facet)
+        
         tr_data = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -1126,6 +1180,7 @@ class MultiNLITask(PairClassificationTask):
             label_idx=11,
             label_fn=targ_map.__getitem__,
             skip_rows=1,
+            facet_list=facet_list
         )
 
         # Warning to anyone who edits this: The reference label is column *15*,
@@ -1139,6 +1194,7 @@ class MultiNLITask(PairClassificationTask):
             label_idx=15,
             label_fn=targ_map.__getitem__,
             skip_rows=1,
+            facet_list=facet_list
         )
         val_mismatched_data = load_tsv(
             self._tokenizer_name,
@@ -1149,6 +1205,7 @@ class MultiNLITask(PairClassificationTask):
             label_idx=15,
             label_fn=targ_map.__getitem__,
             skip_rows=1,
+            facet_list=facet_list
         )
         val_data = [m + mm for m, mm in zip(val_matched_data, val_mismatched_data)]
         val_data = tuple(val_data)
@@ -1162,6 +1219,7 @@ class MultiNLITask(PairClassificationTask):
             has_labels=False,
             return_indices=True,
             skip_rows=1,
+            facet_list=facet_list
         )
         te_mismatched_data = load_tsv(
             self._tokenizer_name,
@@ -1172,6 +1230,7 @@ class MultiNLITask(PairClassificationTask):
             has_labels=False,
             return_indices=True,
             skip_rows=1,
+            facet_list=facet_list
         )
         te_diagnostic_data = load_tsv(
             self._tokenizer_name,
@@ -1182,6 +1241,7 @@ class MultiNLITask(PairClassificationTask):
             has_labels=False,
             return_indices=True,
             skip_rows=1,
+            facet_list=facet_list
         )
         te_data = [
             m + mm + d for m, mm, d in zip(te_matched_data, te_mismatched_data, te_diagnostic_data)
@@ -1246,7 +1306,8 @@ class GLUEDiagnosticTask(PairClassificationTask):
             targ_map = {"neutral": 0, "entailment": 1, "contradiction": 2}
         else:
             raise ValueError("Invalid number of classes for NLI task")
-
+        
+        facet_list=generate_extra_tokens(self.facet)
         diag_data_dic = load_diagnostic_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "diagnostic-full.tsv"),
@@ -1256,6 +1317,7 @@ class GLUEDiagnosticTask(PairClassificationTask):
             label_col="Label",
             label_fn=targ_map.__getitem__,
             skip_rows=1,
+            facet_list=facet_list
         )
 
         self.ix_to_lex_sem_dic = diag_data_dic["ix_to_lex_sem_dic"]
@@ -1618,6 +1680,8 @@ class RTETask(PairClassificationTask):
     def load_data(self):
         """ Process the datasets located at path. """
         targ_map = {"not_entailment": 0, "entailment": 1}
+        facet_list=generate_extra_tokens(self.facet)
+        
         self.train_data_text = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -1627,6 +1691,7 @@ class RTETask(PairClassificationTask):
             s2_idx=2,
             label_idx=3,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1637,6 +1702,7 @@ class RTETask(PairClassificationTask):
             s2_idx=2,
             label_idx=3,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.test_data_text = load_tsv(
             self._tokenizer_name,
@@ -1647,6 +1713,7 @@ class RTETask(PairClassificationTask):
             has_labels=False,
             return_indices=True,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.sentences = (
             self.train_data_text[0]
@@ -1712,6 +1779,9 @@ class QNLITask(PairClassificationTask):
     def load_data(self):
         """Load the data"""
         targ_map = {"not_entailment": 0, "entailment": 1}
+        
+        facet_list=generate_extra_tokens(self.facet)
+        
         self.train_data_text = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -1721,6 +1791,7 @@ class QNLITask(PairClassificationTask):
             s2_idx=2,
             label_idx=3,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1731,6 +1802,7 @@ class QNLITask(PairClassificationTask):
             s2_idx=2,
             label_idx=3,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.test_data_text = load_tsv(
             self._tokenizer_name,
@@ -1741,6 +1813,7 @@ class QNLITask(PairClassificationTask):
             has_labels=False,
             return_indices=True,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.sentences = (
             self.train_data_text[0]
@@ -1766,6 +1839,8 @@ class WNLITask(PairClassificationTask):
 
     def load_data(self):
         """Load the data"""
+        facet_list=generate_extra_tokens(self.facet)
+        
         self.train_data_text = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -1774,6 +1849,7 @@ class WNLITask(PairClassificationTask):
             s2_idx=2,
             label_idx=3,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1783,6 +1859,7 @@ class WNLITask(PairClassificationTask):
             s2_idx=2,
             label_idx=3,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.test_data_text = load_tsv(
             self._tokenizer_name,
@@ -1793,6 +1870,7 @@ class WNLITask(PairClassificationTask):
             has_labels=False,
             return_indices=True,
             skip_rows=1,
+            facet_list=facet_list
         )
         self.sentences = (
             self.train_data_text[0]
@@ -1817,6 +1895,8 @@ class JOCITask(PairOrdinalRegressionTask):
         self.test_data_text = None
 
     def load_data(self):
+        facet_list=generate_extra_tokens(self.facet)
+        
         self.train_data_text = load_tsv(
             self._tokenizer_name,
             os.path.join(self.path, "train.tsv"),
@@ -1825,6 +1905,7 @@ class JOCITask(PairOrdinalRegressionTask):
             s1_idx=0,
             s2_idx=1,
             label_idx=2,
+            facet_list=facet_list
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1834,6 +1915,7 @@ class JOCITask(PairOrdinalRegressionTask):
             s1_idx=0,
             s2_idx=1,
             label_idx=2,
+            facet_listfacet_list
         )
         self.test_data_text = load_tsv(
             self._tokenizer_name,
@@ -1843,6 +1925,7 @@ class JOCITask(PairOrdinalRegressionTask):
             s1_idx=0,
             s2_idx=1,
             label_idx=2,
+            facet_list=facet_list
         )
         self.sentences = (
             self.train_data_text[0]

@@ -86,6 +86,13 @@ def handle_arguments(cl_arguments):
         default=0,
         help="Checkpoint to use, if 0 (default), use best",
     )
+    
+    parser.add_argument(
+        "--facet",
+        type=int,
+        default=0,
+        help="number of facet, zero means using CLS",
+    )
 
     parser.add_argument(
         "--remote_log", "-r", action="store_true", help="If true, enable remote logging on GCP."
