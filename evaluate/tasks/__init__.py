@@ -12,14 +12,14 @@ from .tasks import Task
 # Task lists for handling as a group; these names correspond to the keys in
 # the task registry.
 ALL_GLUE_TASKS = [
-    #"sst",
-    #"cola",
-    #"mrpc",
+    "sst",
+    "cola",
+    "mrpc",
     "qqp",
-    #"sts-b",
+    "sts-b",
     "mnli",
-    #"qnli",
-    #"rte",
+    "qnli",
+    "rte",
     #"wnli",
     #"glue-diagnostic",
 ]

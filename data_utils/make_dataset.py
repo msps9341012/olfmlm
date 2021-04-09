@@ -393,6 +393,6 @@ if __name__ == "__main__":
     # read_path_extension = ["cnn/stories/", "dailymail/stories/"]
     base_read_path = '/iesl/canvas/rueiyaosun/'  # "/h//bookcorpus_clean"
     read_path_extension = ['wiki','book']  # ["books_large_p1_clean.txt", "books_large_p2_clean.txt"]
-    with DatasetWriter("bert_corpus_3", base_read_path, read_path_extension, from_text_files=True,
+    with DatasetWriter("bert_corpus_gg", base_read_path, read_path_extension, from_text_files=True,
                        split_on_newlines=True) as dw:
         dw.create()

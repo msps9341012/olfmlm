@@ -66,6 +66,8 @@ def add_model_config_args(parser):
                        'creating a tokenizer')
     group.add_argument('--bert-config-file', type=str, default=bert_config_file)
     group.add_argument('--agg-function', type=str, default="max")
+    group.add_argument('--dot', action='store_true', help='use only dot product')
+    group.add_argument('--extra-token', type=str, default="cls")
 
     return parser
 
@@ -298,8 +300,16 @@ def get_args():
     args.model_type += '_alt' if args.alternating else ''
     args.model_type += '_cmt' if args.continual_learning else ''
     args.model_type += '+mlm' if args.always_mlm else ''
+    
+    if 'mf' in args.modes:
+        global pretrained_path
+        pretrained_path=pretrained_path+'_'+args.agg_function+'_'+args.extra_token+'_sep_fix'
+        if args.dot:
+            pretrained_path=pretrained_path+'_'+'dot'
+    
     if args.save is None:
         args.save = os.path.join(pretrained_path, args.model_type)
+    
 
     args.cuda = torch.cuda.is_available()
     args.rank = int(os.getenv('RANK', '0'))

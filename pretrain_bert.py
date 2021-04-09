@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
 
 """Pretrain BERT"""
 
@@ -34,6 +35,9 @@ from olfmlm.optim import Adam
 from olfmlm.utils import Timers
 from olfmlm.utils import save_checkpoint
 from olfmlm.utils import load_checkpoint
+global_weight=None
+
+
 
 
 def get_model(tokenizer, args):
@@ -156,6 +160,7 @@ def forward_step(data, model, criterion, modes, args):
     batch = get_batch(data)
     tokens, types, tasks, aux_labels, loss_mask, tgs_mask, lm_labels, att_mask, num_tokens = batch
     # Create self-supervised labels which required batch size
+    
     if "rg" in modes:
         aux_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
     if "mf" in modes:
@@ -183,31 +188,35 @@ def forward_step(data, model, criterion, modes, args):
             losses[mode] = criterion_reg(score.view(-1).contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous().float()).mean()
         elif mode=="mf":
-            if args.agg_function=="max":
-                score=torch.amax(score,dim=(0,1))
-                losses[mode] = criterion_cls(score.contiguous().float(), aux_labels[mode].view(-1).contiguous()).mean()
-                
-            elif args.agg_function=="softmax":
-                score=torch.nn.functional.softmax(score,dim=3).mean(dim=(0,1))
-                score=torch.log(score)
-                losses[mode]=criterion_nll(score.contiguous().float(), aux_labels[mode].view(-1).contiguous()).mean()
-                
-            elif args.agg_function=="logsum":
-                score=torch.logsumexp(score,dim=(0,1))
-                losses[mode] = criterion_cls(score.contiguous().float(), aux_labels[mode].view(-1).contiguous()).mean()
-            elif args.agg_function=='w_softmax':
-                
-                score=torch.nn.functional.softmax(score,dim=3)
-                softmax_weight=model.model.sent['mf']['weighted'](model.model.softmax_weight) #16,9,1
-                
-                softmax_weight=torch.nn.functional.softmax(softmax_weight,dim=1).reshape(-1,3,3) #16,3,3
-                softmax_weight=softmax_weight.transpose(0,2).unsqueeze(dim=3) #3,3,16,1
-                
-                score=torch.mul(score,softmax_weight).sum(dim=(0,1))
-                
-                score=torch.log(score)
-                losses[mode]=criterion_nll(score.contiguous().float(), aux_labels[mode].view(-1).contiguous()).mean()
+            score_left, score_right = score
+            if args.agg_function in ['max','logsum','concat']:
+                if args.extra_token=='token':
+                    
+                    score_left = torch.log(score_left)
+                    score_right = torch.log(score_right)
+                    loss_left = criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                    loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
 
+                else:
+                    loss_left = criterion_cls(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+
+                    loss_right = criterion_cls(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+
+                losses[mode] = (loss_left + loss_right)/2
+
+
+            if args.agg_function in ['softmax','w_softmax']:
+                #score_left = torch.log(torch.nn.functional.softmax(score_left,dim=2).mean(dim=0))
+                loss_left = criterion_nll(score_left.contiguous().float(), aux_labels[mode].view(-1).contiguous()).mean()
+
+                #score_right = torch.log(torch.nn.functional.softmax(score_right,dim=2).mean(dim=0))
+                loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                losses[mode] = (loss_left + loss_right) / 2
+
+            if args.agg_function =='hybrid':
+                pass
+
+            #print(losses[mode])
         else:
             score = score.view(-1, 2) if mode in ["tc", "cap"] else score
             losses[mode] = criterion_cls(score.contiguous().float(),
@@ -253,6 +262,7 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, arg
     losses_reduced, num_tokens = backward_step(optimizer, model, losses, num_tokens, args)
     # Update parameters.
     optimizer.step()
+    
     return losses_reduced, num_tokens
 
 def get_stage_info(total_tokens, num_tasks):
@@ -323,7 +333,7 @@ def get_mode_from_stage(current_stage, args):
     return [np.random.choice(modes, p=p)]
 
 def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args,
-                current_stage=None, next_stage=None):
+                current_stage=None, next_stage=None, val_data=None):
     """Train one full epoch."""
     print("Starting training of epoch {}".format(epoch), flush=True)
     # Turn on training mode which enables dropout.
@@ -352,6 +362,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     data_iters = iter(train_data)
 
     timers('interval time').start()
+    timers('checkpoint time').start()
     while tot_tokens < max_tokens:
         # ERNIE 2.0's continual multi task learning
         if args.continual_learning:
@@ -407,15 +418,24 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
         # Update losses.
         for mode, loss in losses.items():
             total_losses[mode] = total_losses.get(mode, 0.0) + loss.data.detach().float()
+        #print(total_losses)
         
         if args.save_iters and tot_iteration and tot_iteration%args.save_iters==0:
             ck_path = 'ck/model_{}_{}.pt'.format(epoch,tot_iteration)
             print('saving ck model to:',os.path.join(args.save, ck_path))
             save_checkpoint(ck_path, epoch+1, model, optimizer, lr_scheduler, args)
+            #elapsed_time = timers('checkpoint time').elapsed()
+            val_loss = evaluate(epoch, val_data, model, criterion, timers('checkpoint time').elapsed() , args)
+            global best_val_loss
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                if args.save:
+                    best_path = 'best/model.pt'
+                    print('saving best model to:',os.path.join(args.save, best_path))
+                    save_checkpoint(best_path, epoch+1, model, optimizer, lr_scheduler, args)
            
         # Logging.
         if log_tokens > args.log_interval:
-            
 #             print(model.model.bert.pooler.dense.weight)
 #             print(model.model.sent.mf.v_1.dense.weight)
 #             print(model.model.sent.mf.v_2.dense.weight)
@@ -444,9 +464,10 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             for mode, v in avg_loss.items():
                 metrics[mode] = v
             if "mf" in modes:
-                metrics['var_before_pool']=model.model.embedding_var_before_pool
+                #metrics['var_before_pool']=model.model.embedding_var_before_pool
                 #metrics['var_after_pool']=model.model.embedding_var_after_pool
-
+                metrics['var_after_trans']=model.model.emedding_var_after_trans
+                #experiment.log_curve(name='softmax_weight:', x=[1,2,3,4,5,6],y=global_weight.detach().cpu().numpy().tolist(), overwrite=True)
             experiment.log_metrics(metrics)
             #tot_iteration += iteration
             iteration = 0
@@ -560,11 +581,16 @@ def main():
     # Arguments.
     args = get_args()
     
+    experiment=None
+    
     experiment = Experiment(api_key='Bq7FWdV8LPx8HkWh67e5UmUPm',
-                           project_name=args.model_type,
-                           auto_param_logging=False, auto_metric_logging=False,
-                           disabled=(not args.track_results))
+                             project_name=args.model_type,
+                             auto_param_logging=False, auto_metric_logging=False,
+                             disabled=(not args.track_results))
     experiment.log_parameters(vars(args))
+    
+    
+    
     
     metrics = {}
 
@@ -584,14 +610,15 @@ def main():
     model, optimizer, lr_scheduler, criterion = setup_model_and_optimizer(
         args, tokenizer)
     
-
+    
     #model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
     timers("total time").start()
     epoch = 0
+    
     # At any point you can hit Ctrl + C to break out of training early.
     try:
         start_epoch = 1
-        best_val_loss = float('inf')
+        #best_val_loss = float('inf')
         # Resume data loader if necessary.
         if args.resume_dataloader:
             start_epoch = args.epoch
@@ -622,9 +649,10 @@ def main():
 
             # Train
             train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args,
-                        current_stage=current_stage, next_stage=next_stage)
+                        current_stage=current_stage, next_stage=next_stage, val_data=val_data)
+            '''
             elapsed_time = timers('epoch time').elapsed()
-
+             
             if args.save:
                 ck_path = 'ck/model_{}.pt'.format(epoch)
                 print('saving ck model to:',
@@ -632,6 +660,7 @@ def main():
                 save_checkpoint(ck_path, epoch+1, model, optimizer, lr_scheduler, args)
 
             # Validate
+            
             val_loss = evaluate(epoch, val_data, model, criterion, elapsed_time, args)
 
             if val_loss < best_val_loss:
@@ -641,7 +670,7 @@ def main():
                     print('saving best model to:',
                            os.path.join(args.save, best_path))
                     save_checkpoint(best_path, epoch+1, model, optimizer, lr_scheduler, args)
-
+            '''
 
     except KeyboardInterrupt:
         print('-' * 100)
@@ -656,4 +685,5 @@ def main():
 
 
 if __name__ == "__main__":
+    best_val_loss = float('inf')
     main()

@@ -25,6 +25,7 @@ class Pooler(nn.Module):
     def __init__(self, project=True, d_inp=512, d_proj=512, pool_type="max"):
         super(Pooler, self).__init__()
         self.project = nn.Linear(d_inp, d_proj) if project else lambda x: x
+        #self.trans = nn.Linear(d_inp*3, d_inp)
         self.pool_type = pool_type
 
     def forward(self, sequence, mask):
@@ -44,6 +45,7 @@ class Pooler(nn.Module):
         elif self.pool_type == "first":
             #seq_emb = proj_seq[:, 0]
             seq_emb = proj_seq[:, 1:4].reshape(-1,3*proj_seq.shape[-1])
+            #seq_emb = self.trans(seq_emb)
         return seq_emb
 
 

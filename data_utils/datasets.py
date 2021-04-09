@@ -35,7 +35,7 @@ import numpy as np
 import os
 
 import nltk
-nltk.download('punkt')
+nltk.download('punkt',download_dir='/iesl/canvas/rueiyaosun/')
 from nltk import tokenize
 
 from olfmlm.data_utils.lazy_loader import lazy_array_loader, exists_lazy, make_lazy
@@ -192,7 +192,8 @@ def split_ds(ds, split=[.8,.2,.0], shuffle=True):
     ds_len = len(ds)
     inds = np.arange(ds_len)
     if shuffle:
-        np.random.shuffle(inds)
+        #np.random.shuffle(inds)
+        inds = np.load('olfmlm/data_utils/random_index.npy')
     start_idx = 0
     residual_idx = 0
     rtn_ds = [None]*len(split)

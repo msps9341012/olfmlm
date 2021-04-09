@@ -70,8 +70,7 @@ def handle_arguments(cl_arguments):
         default=None,
         help="Name of the experiment (must match folder for loading experiment).",
     )
-
-
+    
     parser.add_argument(
         "--exp_dir",
         "-d",
@@ -501,6 +500,9 @@ def add_required_args(args, cl_args):
     args["local_log_path"] = os.path.join(args.run_dir, "log.log")
 
     if args.load_target_train_checkpoint in ["none", "None", None]:
+        global pretrained_path
+        if "run_name" in args:
+            pretrained_path=pretrained_path+'_'+args.run_name[:-2]
         if cl_args.checkpoint > 0:
             load_path = os.path.join(pretrained_path, args.exp_name, "ck", "model_{}_converted.pt".format(cl_args.checkpoint))
         else:
@@ -509,6 +511,7 @@ def add_required_args(args, cl_args):
 
 def main(cl_arguments):
     """ Train a model for multitask-training."""
+    
     cl_args = handle_arguments(cl_arguments)
     args = config.params_from_file(cl_args.config_file, cl_args.overrides)
     
@@ -526,7 +529,7 @@ def main(cl_arguments):
     tasks = sorted(set(pretrain_tasks + target_tasks), key=lambda x: x.name)
     log.info("\tFinished loading tasks in %.3fs", time.time() - start_time)
     log.info("\t Tasks: {}".format([task.name for task in tasks]))
-    
+
     # Build model
     log.info("Building model...")
     start_time = time.time()
@@ -586,7 +589,6 @@ def main(cl_arguments):
             # Skip tasks that should not be trained on.     
             if task.eval_only_task:
                 continue
-
             params_to_train = load_model_for_target_train_run(
                 args, pre_target_train_path, model, strict, task
             )
@@ -598,6 +600,7 @@ def main(cl_arguments):
                 task.val_metric_decreases,
                 phase="target_train",
             )
+            
 
             _ = trainer.train(
                 tasks=[task],
@@ -631,6 +634,7 @@ def main(cl_arguments):
 if __name__ == "__main__":
     try:
         main(sys.argv[1:])
+        sys.exit(0)
         if EMAIL_NOTIFIER is not None:
             EMAIL_NOTIFIER(body="Run completed successfully!", prefix="")
     except BaseException as e:

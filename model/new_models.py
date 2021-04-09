@@ -127,10 +127,11 @@ class Bert(PreTrainedBertModel):
     ```
     """
 
-    def __init__(self, config, modes=["mlm"]):
+    def __init__(self, config, modes=["mlm"], extra_token='cls', agg_function='max'):
         super(Bert, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertLMTokenHead(config, self.bert.embeddings.word_embeddings.weight)
+        
         self.sent = torch.nn.ModuleDict()
         self.tok = torch.nn.ModuleDict()
         if "nsp" in modes:
@@ -163,10 +164,13 @@ class Bert(PreTrainedBertModel):
             self.sent["mf"]['s_1']=BertHeadTransform(config)
             self.sent["mf"]['s_2']=BertHeadTransform(config)
             self.sent["mf"]['s_3']=BertHeadTransform(config)
-            
+            self.sent['mf']['extra_head']=BertHeadTransform(config)
+            self.extra_token = extra_token
+            self.agg_function = agg_function
             self.sent["mf"]['v_1']=BertPoolerforview(config)
             self.sent["mf"]['v_2']=BertPoolerforview(config)
             self.sent["mf"]['v_3']=BertPoolerforview(config)
+            self.sent["mf"]['extra_pool']=BertPoolerforview(config)
             self.sent["mf"]['weighted'] = nn.Linear(config.hidden_size*2, 1)
             self.softmax_weight=None
             
@@ -186,7 +190,7 @@ class Bert(PreTrainedBertModel):
         sequence_output, pooled_output = self.bert(torch.cat(input_ids, dim=0), token_type_ids, task_ids, att_mask,
                                                    output_all_encoded_layers=False,
                                                    checkpoint_activations=checkpoint_activations)
-
+         
         scores = {}
         if "mlm" in modes:
             scores["mlm"] = self.lm(sequence_output)
@@ -204,41 +208,142 @@ class Bert(PreTrainedBertModel):
             half = len(input_ids[0])
             send_emb_list=[]
             recv_emb_list=[]
-            self.embedding_var_before_pool=self.var_of_embedding(sequence_output[:,1:4,:])
-            #pool_output_list=[]
+            #self.embedding_var_before_pool=self.var_of_embedding(sequence_output[:,1:4,:])
+            pool_output_list=[]
             
             l=[]
             r=[]
+
             for i in range(1,4):
                 l.append(sequence_output[:,i][:half])
                 r.append(sequence_output[:,i][half:])
-                
-                pooled_output=self.sent['mf']['v_'+str(i)](sequence_output[:,i])
-                #pool_output_list.append(pooled_output)
-                send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
+                pooled_facet=self.sent['mf']['v_'+str(i)](sequence_output[:,i])
+                pool_output_list.append(pooled_facet)
+                send_emb, recv_emb = pooled_facet[:half], pooled_facet[half:]
                 send_emb, recv_emb = self.sent['mf']['s_'+str(i)](send_emb), self.sent['mf']['s_'+str(i)](recv_emb)
                 send_emb_list.append(send_emb)
                 recv_emb_list.append(recv_emb)
-            
+             
             #self.embedding_var_after_pool=self.var_of_embedding(torch.stack(pool_output_list).transpose(0,1))
+            
             
             send_emb_tensor=torch.stack(send_emb_list)
             recv_emb_tensor=torch.stack(recv_emb_list)
             
-            score_all=[]
-            view_all=[]
-            for i in range(3):
-                for j in range(3):
-                    view_all.append(torch.cat([l[i],r[j]],dim=1))
-            
-            self.softmax_weight=torch.stack(view_all).transpose(0,1)
-            
+            send_recv_list=[send_emb_tensor, recv_emb_tensor]
+
+            self.emedding_var_after_trans=self.var_of_embedding(torch.cat(send_recv_list,dim=1).transpose(0,1))
+
+            if self.extra_token=='token':
+                token_hidden = sequence_output[:, 4:, :]
+                score_left = self.get_probs_hidden(send_emb_tensor, token_hidden[half:])
+                score_right = self.get_probs_hidden(recv_emb_tensor, token_hidden[:half])
+
+                score_left = self.agg_function_map(torch.stack(score_left), self.agg_function, dim=0)
+                score_right = self.agg_function_map(torch.stack(score_right), self.agg_function, dim=0)
+
+                score_left = self.masked_softmax(score_left,  att_mask[half:, :])
+                score_right = self.masked_softmax(score_right, att_mask[:half, :])
+
+
+            elif self.extra_token=='vocab':
+                ''''
+                half = send.shape[1] 
+
+                mask = torch.cat(att_mask, dim=0)
+                masked_label = lm_labels.clone().detach()
+                masked_label[masked_label>0] = 0
+                masked_label = -1*masked_label
+
+                true_label = lm_labels.clone().detach()
+                true_label[true_label==-1]=0
+
+                token_index = torch.cat(tokens,dim=0)
+                #mask out masked token
+                token_index = token_index*masked_label 
+                token_index = token_index + true_label
+
+
+                score_left=model.model.get_probs(send, token_index[half:], mask[half:,:])
+
+                score_right = model.model.get_probs(recv, token_index[:half], mask[:half, :])
+                '''
+                left_index = input_ids[0]
+                right_index = input_ids[1]
+                dot_left = self.get_dot_vocab(send_emb_tensor)
+                dot_right = self.get_dot_vocab(recv_emb_tensor)
+
+                dot_left = self.agg_function_map(dot_left, self.agg_function, dim=0)
+                dot_right = self.agg_function_map(dot_right, self.agg_function, dim=0)
+
+                score_left = self.vocab_prob(dot_left, right_index, att_mask[half:, :])
+                score_right = self.vocab_prob(dot_right, left_index, att_mask[:half, :])
+
+
+
+
+
+            elif self.extra_token=='cls':
+                # view_all = []
+                # view_all.append(torch.cat([torch.stack(l), torch.stack(3 * [pooled_output[half:]])], dim=2))
+                # view_all.append(torch.cat([torch.stack(r), torch.stack(3 * [pooled_output[:half]])], dim=2))
+                # self.softmax_weight = torch.cat(view_all).transpose(0, 1)
+                pooled_out_trans = self.sent["mf"]['extra_head'](pooled_output)
+
+                score_left = self.cross_cos_sim(send_emb_tensor, pooled_out_trans[half:])
+                score_right = self.cross_cos_sim(recv_emb_tensor, pooled_out_trans[:half])
+
+                score_left = self.agg_function_map(score_left, self.agg_function, dim=0)
+                score_right = self.agg_function_map(score_right, self.agg_function, dim=0)
+
+
+            elif self.extra_token=='avg':
+                all_words = sequence_output[:, 4:, :]
+                length_mask = att_mask[:, 4:].unsqueeze(2)
+                average_tokens = (all_words * length_mask).sum(dim=1) / length_mask.sum(dim=1)
+                average_pool = self.sent["mf"]['extra_pool'](average_tokens)
+                pooled_out_trans = self.sent["mf"]['extra_head'](average_pool)
+
+                # view_all = []
+                # view_all.append(torch.cat([torch.stack(l), torch.stack(3 * [average_tokens[half:]])], dim=2))
+                # view_all.append(torch.cat([torch.stack(r), torch.stack(3 * [average_tokens[:half]])], dim=2))
+                # self.softmax_weight = torch.cat(view_all).transpose(0, 1)
+
+                score_left = self.cross_cos_sim(send_emb_tensor, pooled_out_trans[half:])
+                score_right = self.cross_cos_sim(recv_emb_tensor, pooled_out_trans[:half])
+
+                score_left = self.agg_function_map(score_left, self.agg_function, dim=0)
+                score_right = self.agg_function_map(score_right, self.agg_function, dim=0)
+
+
+
+            elif self.extra_token=='all':
+                '''
+                #score_all=[]
+                view_all=[]
+                for i in range(3):
+                    for j in range(3):
+                        view_all.append(torch.cat([l[i],r[j]],dim=1))
+
+                self.softmax_weight=torch.stack(view_all).transpose(0,1)
+                '''
+                for i in range(3):
+                    score_all.append(self.cross_cos_sim(recv_emb_tensor,send_emb_tensor[i]))
+
+                score_left = self.agg_function_map(torch.stack(score_all), self.agg_function, dim=(0,1))
+                score_right = None
+
+            else:
+                pass
+
+            scores["mf"] = [score_left, score_right]
+
             #scores["mf"]=torch.stack(view_all)
-            for i in range(3):
-                score_all.append(self.cross_cos_sim(recv_emb_tensor,send_emb_tensor[i]))
+            #for i in range(3):
+                #score_all.append(self.cross_cos_sim(recv_emb_tensor,send_emb_tensor[i]))
              
             
-            scores["mf"]=torch.stack(score_all)
+            #scores["mf"]=torch.stack(score_all)
             
 #           #torch.amax(torch.stack(score_all),dim=(0,1))
             
@@ -304,15 +409,148 @@ class Bert(PreTrainedBertModel):
     def inner_product(self, a, b):
         return torch.mm(a, b.transpose(0, 1))
     
-    def cross_cos_sim(self,a,b):
-        a_norm = a / a.norm(dim=2)[:, :, None]
-        b_norm = b / b.norm(dim=1)[:, None]
+    def cross_cos_sim(self,a,b,norm=True):
+        if norm:
+            a_norm = a / a.norm(dim=2)[:, :, None]
+            b_norm = b / b.norm(dim=1)[:, None]
+        else:
+            a_norm = a
+            b_norm = b
         return torch.matmul(a_norm,b_norm.transpose(0, 1)).transpose(1,2)
     
     def var_of_embedding(self,inputs):
         #(batch, facet, embedding)
-        inputs_norm = inputs-inputs.min(2, keepdim=True)[0]
-        inputs_norm= inputs_norm /inputs_norm.max(2, keepdim=True)[0]  
+        
+        inputs_norm = inputs/inputs.norm(dim=2,keepdim=True)
         pred_mean = inputs_norm.mean(dim = 1, keepdim = True)
         loss_set_div = - torch.mean( (inputs_norm - pred_mean).norm(dim = 2))
         return loss_set_div
+
+
+    def agg_function_map(self,score,method,dim):
+        if method=='max':
+            return torch.amax(score,dim=dim)
+        elif method=='logsum':
+            return torch.logsumexp(score,dim=dim)
+
+        elif method=='softmax':
+
+            pass
+
+        elif method=='concat':
+            # send, recv = model.model.send_recv_list
+            # send = send.transpose(1,0).reshape(score.shape[-1],-1)
+            # recv = recv.transpose(1,0).reshape(score.shape[-1],-1)
+            '''
+            send = send.transpose(1,0).reshape(half,-1)
+            recv = recv.transpose(1,0).reshape(half,-1)
+            score = model.model.cosine_similarity(send, recv)
+            '''
+            pass
+
+        elif method=='w_softmax':
+            '''
+            score=torch.nn.functional.softmax(score,dim=3)
+            softmax_weight=model.model.sent['mf']['weighted'](model.model.softmax_weight) #16,9,1
+
+            softmax_weight=torch.nn.functional.softmax(softmax_weight,dim=1).reshape(-1,3,3) #16,3,3
+            softmax_weight=softmax_weight.transpose(0,2).unsqueeze(dim=3) #3,3,16,1
+
+            score=torch.mul(score,softmax_weight).sum(dim=(0,1))
+
+            score=torch.log(score)
+            '''
+            pass
+
+        elif method=='hybrid':
+            pass
+        else:
+            pass
+
+
+    def masked_softmax(self, prob, mask):
+        mask = mask[:, 4:]
+        half = prob.shape[0]
+        prob = prob * mask.float()
+
+        prob = torch.nn.functional.softmax(prob.reshape(half, -1), dim=1)
+
+        prob = prob.reshape(half, half, -1)
+        prob = prob * mask.float()
+        prob = prob / (prob.sum(dim=(1, 2), keepdim=True) + 1e-13)
+        prob = prob.sum(dim=2)
+        return prob
+
+
+
+    def get_probs_hidden(self, facet_set, hidden_output):
+        half = hidden_output.shape[0]
+        #token_hidden = hidden_output 
+        token_hidden = hidden_output.detach().clone()
+        score=[]
+        for i in range(3):
+            
+            facet_i = facet_set[i]
+            prob = torch.matmul(token_hidden, facet_i.T)
+            prob = prob.transpose(1,2).transpose(1,0)
+
+            score.append(prob)
+        return score
+
+    def get_dot_vocab(self, facet_set):
+        token_embedding_weights = self.bert.embeddings.word_embeddings.weight
+        facet_dot = torch.matmul(facet_set, token_embedding_weights.T)
+        return facet_dot
+
+    def vocab_prob(self,dot_prod, index_list, mask):
+        half = index_list.shape[0]
+
+        prob =torch.exp(dot_prod)
+        speical_tokens = prob[:, 0:4].sum(dim=1, keepdim=True) + prob[:, 101:104].sum(dim=1, keepdim=True)
+        prob = prob/(prob.sum(dim=1, keepdim=True) - speical_tokens) #normalize to prob
+
+        prob = prob.expand(half, half, -1).transpose(1, 0)  #16,16,30522
+        index_all = index_list.expand(half, half, -1)  #16,16,128
+        index_all = index_all[:, :, 4:-1] #16,16,123
+        mask_all  = mask[:, 4:-1].expand(half, half, -1)
+
+        sel_prob = torch.gather(prob, dim=2, index=index_all)
+        score = (sel_prob * mask_all).sum(dim=2)
+        return score
+        # mask = mask[:, 4:]
+        # sel_prob = sel_prob * mask.float()
+        # breakpoint()
+        #
+        #
+        # mask = mask[:, 4:]
+        # prob = prob * mask.float()
+        # prob = torch.nn.functional.softmax(prob.reshape(half, -1), dim=1)
+        #
+        #
+        #
+        #
+        #
+        #
+        #
+        # # filter out unpad, unused, cls, sep
+        # speical_tokens = facet_prob[:, :, 0:4].sum(dim=2, keepdim=True) + facet_prob[:, :, 101:104].sum(dim=2,keepdim=True)
+        # truth_probs = facet_prob / (facet_prob.sum(dim=2, keepdim=True) - speical_tokens)
+        #
+        # #truth_probs = facet_prob / facet_prob.sum(dim=2, keepdim=True)
+        #
+        # index_all = index_list.expand(half, half, -1)
+        # index_all = index_all[:,:,4:-1]
+        # mask_all  = mask.expand(half, half, -1)
+        # mask_all  = mask[:, 4:-1].expand(half, half, -1)
+        # score = []
+        # for i in range(3):
+        #     facet_i=truth_probs[i]
+        #     facet_i_all = facet_i.expand(half, half, -1).transpose(1, 0)
+        #     facet_i_all = torch.gather(facet_i_all, dim=2, index=index_all)
+        #     score.append((facet_i_all * mask_all).sum(dim=2))
+        # '''
+        # truth_probs = torch.gather(truth_probs, dim=2, index=index_list.expand(3, index_list.shape[0], index_list.shape[1]))
+        # length_mask = mask[:, 4:-1]
+        # score = (truth_probs[:,:,4:-1] * length_mask).sum(dim=2)
+        # '''
+        # return torch.stack(score)
