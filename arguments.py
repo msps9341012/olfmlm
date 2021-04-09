@@ -303,7 +303,7 @@ def get_args():
     
     if 'mf' in args.modes:
         global pretrained_path
-        pretrained_path=pretrained_path+'_'+args.agg_function+'_'+args.extra_token+'_sep_fix'
+        pretrained_path=pretrained_path+'_'+args.agg_function+'_'+args.extra_token
         if args.dot:
             pretrained_path=pretrained_path+'_'+'dot'
     
