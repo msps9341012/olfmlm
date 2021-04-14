@@ -18,33 +18,6 @@ source bert_env/bin/activate
 pip install -r requirements.txt
 ```
 
-# TL;DR 
-- Documentation
-  - [Link](https://hackmd.io/@5ZnjJQRbT9CfVYeuVPNXVw/HylPupjNO)
-  - Detail the whole project and the progresses we have made. 
-    - Also point out the codes that I have modified. 
-   
-- Dataset
-  - The preprocessed dataset is in ```/iesl/canvas/rueiyaosun/train_data/bert_corpus.lazy```. 
-    - You can copy the dataset to a```train_data``` folder created in your location. 
-    - And then set all the saving and loading paths in the ```paths.py```.
-  - Also copy the ```/iesl/canvas/rueiyaosun/olfmlm/data_utils/random_index.npy``` to the same location in your workspace. 
-    - This file is to make sure we will have the same training/dev/testing set.
-    
-- Commands for training.
-  ```
-  bash olfmlm/scripts/pretrain_bert.sh --model-type mf --pretrained-bert --save-iters 86400 --lr 2e-5 --agg-function max --warmup 0 --extra-token token
-  ```
-    - This means using pretrain-bert weights, do not use warmup and training with mf task. And save the model every 86400 iterations (basically a day)
-    - The choices for agg-function are 'max', 'logsum', 'softmax' (not stable). 
-    - While for the extra-token, we have 'token', 'vocab', 'cls', 'avg' and 'all'.
-    - The remaining arguments are the same to the original repo. 
-      - You can see more detial descriptions in ```arguments.py``
-
-You can also create an account of ```comet_ml``` and change your api-key in the main function of ```pretrain_bert.py```. It is a free and powerful visualization tool.
-
-
-
 # Usage
 The code enables pre-training a transformer (size specified in bert_config.json) using any combination of the following tasks (aka modes/losses):
 "mlm", "nsp", "psp", "sd", "so", "rg", "fs", "tc", "sc", "sbo", "wlen", "cap", "tf", "tf_idf", or "tgs". See paper for details regarding the modes.
