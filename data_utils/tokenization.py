@@ -699,7 +699,9 @@ class BertWordPieceTokenizer(Tokenizer):
         self.num_tokens = len(self.text_tokenizer.vocab)
         self.num_text_tokens = self.num_tokens-5
         self.num_type_tokens = 2
-
+        '''
+        Add multi-facet vectors, s_1,s_2,s_3
+        '''
         self._command_tokens = [
             CommandToken('pad', '[PAD]', self.text_tokenizer.vocab['[PAD]']),
             CommandToken('ENC', '[CLS]', self.text_tokenizer.vocab['[CLS]']),

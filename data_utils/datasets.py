@@ -985,7 +985,10 @@ class bert_dataset(data.Dataset):
             # Truncate sequence if too long
             self.truncate_sequence(tokens[i], token_types[i], token_labels, i, rng)
             # Add start and end tokens ('CLS' and 'SEP' respectively)
-            #add mf
+            '''
+            Add facet tokens
+            '''
+
             if "mf" in self.modes:
                 tokens[i] = [self.tokenizer.get_command('ENC').Id] + [self.tokenizer.get_command('s_1').Id] +[self.tokenizer.get_command('s_2').Id] + [self.tokenizer.get_command('s_3').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
                 #add 3 types for views
@@ -1010,6 +1013,9 @@ class bert_dataset(data.Dataset):
             mask[i] = [0] * len(tokens[i])
             mask_labels[i] = [-1] * len(tokens[i])
             num_masked, ci = 0, 0
+            '''
+            Do not include facet token during mlm
+            '''
             while num_masked < num_to_predict:
                 idx = cand_indices[ci]
                 ci += 1

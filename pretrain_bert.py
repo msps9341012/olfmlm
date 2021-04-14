@@ -36,7 +36,7 @@ from olfmlm.utils import Timers
 from olfmlm.utils import save_checkpoint
 from olfmlm.utils import load_checkpoint
 global_weight=None
-
+batch_step = 0
 
 
 
@@ -187,7 +187,11 @@ def forward_step(data, model, criterion, modes, args):
         elif mode in ["fs", "wlen", "tf", "tf_idf"]: # use regression
             losses[mode] = criterion_reg(score.view(-1).contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous().float()).mean()
+
         elif mode=="mf":
+            '''
+            loss function related to mf task
+            '''
             score_left, score_right = score
             if args.agg_function in ['max','logsum','concat']:
                 if args.extra_token=='token':
@@ -206,10 +210,10 @@ def forward_step(data, model, criterion, modes, args):
 
 
             if args.agg_function in ['softmax','w_softmax']:
-                #score_left = torch.log(torch.nn.functional.softmax(score_left,dim=2).mean(dim=0))
+                score_left =torch.log(score_left)
                 loss_left = criterion_nll(score_left.contiguous().float(), aux_labels[mode].view(-1).contiguous()).mean()
 
-                #score_right = torch.log(torch.nn.functional.softmax(score_right,dim=2).mean(dim=0))
+                score_right = torch.log(score_right)
                 loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                 losses[mode] = (loss_left + loss_right) / 2
 
@@ -227,14 +231,16 @@ def forward_step(data, model, criterion, modes, args):
 def backward_step(optimizer, model, losses, num_tokens, args):
     """Backward step."""
     # Backward pass.
-    optimizer.zero_grad()
+    #optimizer.zero_grad()
     # For testing purposes, should always be False
     if args.no_aux:
         total_loss = losses['mlm']
     else:
         total_loss = sum(losses.values())
 
+    total_loss = total_loss/2
     total_loss.backward()
+
 
     # Reduce across processes.
     losses_reduced = losses
@@ -260,8 +266,13 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, arg
     losses, num_tokens = forward_step(input_data, model, criterion, modes, args)
     # Calculate gradients, reduce across processes, and clip.
     losses_reduced, num_tokens = backward_step(optimizer, model, losses, num_tokens, args)
+    global batch_step
+    batch_step = batch_step+1
+    if batch_step % 2 ==0:
+        optimizer.step()
+        optimizer.zero_grad()
+
     # Update parameters.
-    optimizer.step()
     
     return losses_reduced, num_tokens
 

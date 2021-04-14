@@ -159,6 +159,9 @@ class Bert(PreTrainedBertModel):
             self.tok["tc"] = BertTokenHead(config, num_classes=2)
         if "rg" in modes:
             self.sent["rg"] = BertHeadTransform(config)
+        '''
+        Define layers needed for our mf tasks
+        '''
         if "mf" in modes:
             self.sent["mf"] = torch.nn.ModuleDict()
             self.sent["mf"]['s_1']=BertHeadTransform(config)
@@ -211,12 +214,15 @@ class Bert(PreTrainedBertModel):
             #self.embedding_var_before_pool=self.var_of_embedding(sequence_output[:,1:4,:])
             pool_output_list=[]
             
-            l=[]
-            r=[]
+            l=[] #for weighted sum, now is not our mainly target
+            r=[] #for weighted sum, now is not our mainly target
 
             for i in range(1,4):
                 l.append(sequence_output[:,i][:half])
                 r.append(sequence_output[:,i][half:])
+                '''
+                Get facet by index and pass through pooler layer and transform layer
+                '''
                 pooled_facet=self.sent['mf']['v_'+str(i)](sequence_output[:,i])
                 pool_output_list.append(pooled_facet)
                 send_emb, recv_emb = pooled_facet[:half], pooled_facet[half:]
@@ -232,8 +238,12 @@ class Bert(PreTrainedBertModel):
             
             send_recv_list=[send_emb_tensor, recv_emb_tensor]
 
+            #compute the variance between the facets
             self.emedding_var_after_trans=self.var_of_embedding(torch.cat(send_recv_list,dim=1).transpose(0,1))
 
+            '''
+            compute similarity score matrix corresponding to different choices
+            '''
             if self.extra_token=='token':
                 token_hidden = sequence_output[:, 4:, :]
                 score_left = self.get_probs_hidden(send_emb_tensor, token_hidden[half:])
@@ -319,14 +329,18 @@ class Bert(PreTrainedBertModel):
 
             elif self.extra_token=='all':
                 '''
-                #score_all=[]
-                view_all=[]
-                for i in range(3):
-                    for j in range(3):
-                        view_all.append(torch.cat([l[i],r[j]],dim=1))
-
-                self.softmax_weight=torch.stack(view_all).transpose(0,1)
+                The primitive settings, have not maintained for a while.
+                Can skip it.
                 '''
+
+                # #score_all=[]
+                # view_all=[]
+                # for i in range(3):
+                #     for j in range(3):
+                #         view_all.append(torch.cat([l[i],r[j]],dim=1))
+                #
+                # self.softmax_weight=torch.stack(view_all).transpose(0,1)
+                #
                 for i in range(3):
                     score_all.append(self.cross_cos_sim(recv_emb_tensor,send_emb_tensor[i]))
 
@@ -434,8 +448,8 @@ class Bert(PreTrainedBertModel):
             return torch.logsumexp(score,dim=dim)
 
         elif method=='softmax':
-
-            pass
+            dim = score.shape[-1]
+            return torch.nn.functional.softmax(score, dim=dim).mean(dim=0)
 
         elif method=='concat':
             # send, recv = model.model.send_recv_list
