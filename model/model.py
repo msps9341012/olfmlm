@@ -71,13 +71,13 @@ class BertModel(torch.nn.Module):
             if 'mf' in args.modes:
                 with torch.no_grad():
                     self.model.lm.decoder.weight=self.model.bert.embeddings.word_embeddings.weight
-
-                    #self.model.sent.mf.v_1.dense.weight=torch.nn.Parameter(self.model.bert.pooler.dense.weight.data)
-                    self.model.sent.mf.v_2.dense.weight=torch.nn.Parameter(self.model.sent.mf.v_1.dense.weight.data)
-                    self.model.sent.mf.v_3.dense.weight=torch.nn.Parameter(self.model.sent.mf.v_1.dense.weight.data)
-                    #self.model.sent.mf.s_1.dense.weight=torch.nn.Parameter(self.model.bert.pooler.dense.weight.data)
-                    self.model.sent.mf.s_2.dense.weight=torch.nn.Parameter(self.model.sent.mf.s_1.dense.weight.data)
-                    self.model.sent.mf.s_3.dense.weight=torch.nn.Parameter(self.model.sent.mf.s_1.dense.weight.data)
+                    if args.same_weight:
+                        self.model.sent.mf.v_1.dense.weight=torch.nn.Parameter(self.model.bert.pooler.dense.weight.data)
+                        self.model.sent.mf.v_2.dense.weight=torch.nn.Parameter(self.model.sent.mf.v_1.dense.weight.data)
+                        self.model.sent.mf.v_3.dense.weight=torch.nn.Parameter(self.model.sent.mf.v_1.dense.weight.data)
+                        self.model.sent.mf.s_1.dense.weight=torch.nn.Parameter(self.model.bert.pooler.dense.weight.data)
+                        self.model.sent.mf.s_2.dense.weight=torch.nn.Parameter(self.model.sent.mf.s_1.dense.weight.data)
+                        self.model.sent.mf.s_3.dense.weight=torch.nn.Parameter(self.model.sent.mf.s_1.dense.weight.data)
 
             #self.model.bert=self.model.bert.from_pretrained('bert-base-uncased',cache_dir=args.cache_dir,config_file_path=args.bert_config_file)
             

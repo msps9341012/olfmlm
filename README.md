@@ -40,7 +40,24 @@ pip install -r requirements.txt
     - The choices for agg-function are 'max', 'logsum', 'softmax' (not stable). 
     - While for the extra-token, we have 'token', 'vocab', 'cls', 'avg' and 'all'.
     - The remaining arguments are the same to the original repo. 
-      - You can see more detial descriptions in ```arguments.py``
+      - You can see more details descriptions in ```arguments.py```
+
+- Visualization
+  - Get the output hidden states for all facets, you can change the ```save_dir``` within the file.
+    - ```python -m olfmlm.extract_embedd max_token```
+    - It will output three ```.npy file``` under the ```save_dir```.
+  - Get the gradient for all facets _(can ignore now)_
+    - ```python -m olfmlm.grad_analysis max_token```
+  - Copy the raw text file of validation set from ```/iesl/canvas/rueiyaosun/raw_val.pkl``` to your workspace.  
+  - Open the corresponding ```.ipynb``` file to do the visualization. These files are self-explanatory.
+    - check_vocab.ipynb : find the nearest token
+    - Analyze_emb.ipynb : find the nearest sentence
+    - Analyze_grad.ipynb : visualize the important tokens in the sentence 
+  
+  Make sure to **move** those ```.ipynb``` files outside the ```olfmlm``` fold to prevent path conflicts.
+    
+
+    
 
 You can also create an account of ```comet_ml``` and change your api-key in the main function of ```pretrain_bert.py```. It is a free and powerful visualization tool.
 

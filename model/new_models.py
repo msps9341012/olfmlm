@@ -2,6 +2,19 @@ import numpy as np
 import torch
 from torch.nn import CrossEntropyLoss
 from olfmlm.model.modeling import *
+from collections import Counter
+import pickle
+
+
+def get_freq_weight():
+    with open('/iesl/canvas/rueiyaosun/freq_counter.pkl', 'rb') as handle:
+        freq = pickle.load(handle) #only include vocab count>1, so the size is smaller than 30522
+    freq.update(list(range(30522))) #bert vocab size
+    freq = list(dict(sorted(freq.items(), key=lambda i: i[0])).values())
+    freq = np.array(freq) - 1
+    prob_w = freq / sum(freq)
+    prob_w = 1 / (prob_w + 1e-4)
+    return prob_w
 
 class BertSentHead(nn.Module):
     def __init__(self, config, num_classes=2):
@@ -176,7 +189,8 @@ class Bert(PreTrainedBertModel):
             self.sent["mf"]['extra_pool']=BertPoolerforview(config)
             self.sent["mf"]['weighted'] = nn.Linear(config.hidden_size*2, 1)
             self.softmax_weight=None
-            
+            self.prob_w = torch.tensor(get_freq_weight(),dtype=torch.float32).cuda()
+
         if "fs" in modes:
             self.sent["fs"] = BertHeadTransform(config)
             self.tok["fs"] = BertHeadTransform(config)
@@ -214,8 +228,8 @@ class Bert(PreTrainedBertModel):
             #self.embedding_var_before_pool=self.var_of_embedding(sequence_output[:,1:4,:])
             pool_output_list=[]
             
-            l=[] #for weighted sum, now is not our mainly target
-            r=[] #for weighted sum, now is not our mainly target
+            l=[] #for weighted sum, now is not our main target
+            r=[] #for weighted sum, now is not our main target
 
             for i in range(1,4):
                 l.append(sequence_output[:,i][:half])
@@ -224,7 +238,8 @@ class Bert(PreTrainedBertModel):
                 Get facet by index and pass through pooler layer and transform layer
                 '''
                 pooled_facet=self.sent['mf']['v_'+str(i)](sequence_output[:,i])
-                pool_output_list.append(pooled_facet)
+                #pool_output_list.append(pooled_facet)
+                pooled_facet = sequence_output[:,i]
                 send_emb, recv_emb = pooled_facet[:half], pooled_facet[half:]
                 send_emb, recv_emb = self.sent['mf']['s_'+str(i)](send_emb), self.sent['mf']['s_'+str(i)](recv_emb)
                 send_emb_list.append(send_emb)
@@ -237,9 +252,16 @@ class Bert(PreTrainedBertModel):
             recv_emb_tensor=torch.stack(recv_emb_list)
             
             send_recv_list=[send_emb_tensor, recv_emb_tensor]
-
+            
             #compute the variance between the facets
             self.emedding_var_after_trans=self.var_of_embedding(torch.cat(send_recv_list,dim=1).transpose(0,1))
+            
+            '''
+            if np.random.uniform()<=0.5:
+                 choice = np.random.randint(3, size=1).item()
+                 send_emb_tensor = send_emb_tensor[choice].unsqueeze(dim=0)
+                 recv_emb_tensor = recv_emb_tensor[choice].unsqueeze(dim=0)
+            '''
 
             '''
             compute similarity score matrix corresponding to different choices
@@ -248,7 +270,7 @@ class Bert(PreTrainedBertModel):
                 token_hidden = sequence_output[:, 4:, :]
                 score_left = self.get_probs_hidden(send_emb_tensor, token_hidden[half:])
                 score_right = self.get_probs_hidden(recv_emb_tensor, token_hidden[:half])
-
+                
                 score_left = self.agg_function_map(torch.stack(score_left), self.agg_function, dim=0)
                 score_right = self.agg_function_map(torch.stack(score_right), self.agg_function, dim=0)
 
@@ -486,11 +508,11 @@ class Bert(PreTrainedBertModel):
         mask = mask[:, 4:]
         half = prob.shape[0]
         prob = prob * mask.float()
-
         prob = torch.nn.functional.softmax(prob.reshape(half, -1), dim=1)
 
         prob = prob.reshape(half, half, -1)
         prob = prob * mask.float()
+        #normalize the probability again
         prob = prob / (prob.sum(dim=(1, 2), keepdim=True) + 1e-13)
         prob = prob.sum(dim=2)
         return prob
@@ -502,7 +524,8 @@ class Bert(PreTrainedBertModel):
         #token_hidden = hidden_output 
         token_hidden = hidden_output.detach().clone()
         score=[]
-        for i in range(3):
+        
+        for i in range(len(facet_set)):
             
             facet_i = facet_set[i]
             prob = torch.matmul(token_hidden, facet_i.T)
@@ -518,18 +541,23 @@ class Bert(PreTrainedBertModel):
 
     def vocab_prob(self,dot_prod, index_list, mask):
         half = index_list.shape[0]
-
+        prob = torch.nn.functional.softmax(dot_prod)
+        '''
         prob =torch.exp(dot_prod)
         speical_tokens = prob[:, 0:4].sum(dim=1, keepdim=True) + prob[:, 101:104].sum(dim=1, keepdim=True)
         prob = prob/(prob.sum(dim=1, keepdim=True) - speical_tokens) #normalize to prob
-
+        '''
+        prob = torch.log(prob)
+        #prob = prob*self.prob_w
+        
         prob = prob.expand(half, half, -1).transpose(1, 0)  #16,16,30522
         index_all = index_list.expand(half, half, -1)  #16,16,128
         index_all = index_all[:, :, 4:-1] #16,16,123
         mask_all  = mask[:, 4:-1].expand(half, half, -1)
-
+        
         sel_prob = torch.gather(prob, dim=2, index=index_all)
-        score = (sel_prob * mask_all).sum(dim=2)
+        score = (sel_prob * mask_all).sum(dim=2)/mask_all.sum(dim=2)
+        #score = (sel_prob * mask_all).sum(dim=2)
         return score
         # mask = mask[:, 4:]
         # sel_prob = sel_prob * mask.float()

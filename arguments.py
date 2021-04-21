@@ -68,6 +68,7 @@ def add_model_config_args(parser):
     group.add_argument('--agg-function', type=str, default="max")
     group.add_argument('--dot', action='store_true', help='use only dot product')
     group.add_argument('--extra-token', type=str, default="cls")
+    group.add_argument('--same-weight', action='store_true', help='initialize same weights for pooler and transform head')
 
     return parser
 

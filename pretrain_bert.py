@@ -35,9 +35,10 @@ from olfmlm.optim import Adam
 from olfmlm.utils import Timers
 from olfmlm.utils import save_checkpoint
 from olfmlm.utils import load_checkpoint
+
+
 global_weight=None
 batch_step = 0
-
 
 
 def get_model(tokenizer, args):
@@ -200,7 +201,11 @@ def forward_step(data, model, criterion, modes, args):
                     score_right = torch.log(score_right)
                     loss_left = criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                     loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
-
+                
+                elif args.extra_token =='vocab':
+                    
+                    loss_left = criterion_cls(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                    loss_right = criterion_cls(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                 else:
                     loss_left = criterion_cls(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
 
@@ -231,14 +236,14 @@ def forward_step(data, model, criterion, modes, args):
 def backward_step(optimizer, model, losses, num_tokens, args):
     """Backward step."""
     # Backward pass.
-    #optimizer.zero_grad()
+    optimizer.zero_grad()
     # For testing purposes, should always be False
     if args.no_aux:
         total_loss = losses['mlm']
     else:
         total_loss = sum(losses.values())
 
-    total_loss = total_loss/2
+    #total_loss = total_loss/2
     total_loss.backward()
 
 
@@ -266,14 +271,15 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, arg
     losses, num_tokens = forward_step(input_data, model, criterion, modes, args)
     # Calculate gradients, reduce across processes, and clip.
     losses_reduced, num_tokens = backward_step(optimizer, model, losses, num_tokens, args)
+    '''
     global batch_step
     batch_step = batch_step+1
     if batch_step % 2 ==0:
         optimizer.step()
         optimizer.zero_grad()
-
+    '''
     # Update parameters.
-    
+    optimizer.step()
     return losses_reduced, num_tokens
 
 def get_stage_info(total_tokens, num_tasks):
@@ -432,6 +438,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
         #print(total_losses)
         
         if args.save_iters and tot_iteration and tot_iteration%args.save_iters==0:
+            
             ck_path = 'ck/model_{}_{}.pt'.format(epoch,tot_iteration)
             print('saving ck model to:',os.path.join(args.save, ck_path))
             save_checkpoint(ck_path, epoch+1, model, optimizer, lr_scheduler, args)
@@ -593,16 +600,14 @@ def main():
     args = get_args()
     
     experiment=None
-    
+
     experiment = Experiment(api_key='Bq7FWdV8LPx8HkWh67e5UmUPm',
-                             project_name=args.model_type,
+                             project_name='testing',
                              auto_param_logging=False, auto_metric_logging=False,
                              disabled=(not args.track_results))
     experiment.log_parameters(vars(args))
-    
-    
-    
-    
+
+     
     metrics = {}
 
     # Pytorch distributed.
@@ -620,7 +625,6 @@ def main():
     # Model, optimizer, and learning rate.
     model, optimizer, lr_scheduler, criterion = setup_model_and_optimizer(
         args, tokenizer)
-    
     
     #model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
     timers("total time").start()
