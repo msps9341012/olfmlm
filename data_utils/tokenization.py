@@ -19,7 +19,8 @@ import os
 import csv
 
 import nltk
-nltk.download('punkt', download_dir='/iesl/canvas/rueiyaosun/')
+#nltk.download('punkt', download_dir='/iesl/canvas/rueiyaosun/')
+nltk.download('punkt')
 from nltk import tokenize as nltk_tokenize
 import sentencepiece as spm
 
