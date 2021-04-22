@@ -41,7 +41,7 @@ args.model_type='mf+mlm'
 #although extra_token and agg_function do not matter in forward function, we only care about the facets' outputs
 args.extra_token=mode.split('_')[1]
 args.agg_function=mode.split('_')[0]
-
+args.same_weight='False'
 
 '''
 Loading dataset part is also the same.
