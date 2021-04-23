@@ -34,6 +34,7 @@ args.model_type='mf+mlm'
 
 args.extra_token=mode.split('_')[1]
 args.agg_function=mode.split('_')[0]
+args.same_weight=False
 
 data_config = configure_data()
 data_config.set_defaults(data_set_type='BERT', transpose=False)
