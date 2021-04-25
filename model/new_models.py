@@ -13,7 +13,7 @@ def get_freq_weight():
     freq = list(dict(sorted(freq.items(), key=lambda i: i[0])).values())
     freq = np.array(freq) - 1
     prob_w = freq / sum(freq)
-    prob_w = 1 / (prob_w + 1e-4)
+    prob_w = 1e-4 / (prob_w + 1e-4)
     return prob_w
 
 class BertSentHead(nn.Module):
@@ -190,6 +190,7 @@ class Bert(PreTrainedBertModel):
             self.sent["mf"]['weighted'] = nn.Linear(config.hidden_size*2, 1)
             self.softmax_weight=None
             self.prob_w = torch.tensor(get_freq_weight(),dtype=torch.float32).cuda()
+            self.prob_w = torch.stack([self.prob_w]*32)
 
         if "fs" in modes:
             self.sent["fs"] = BertHeadTransform(config)
@@ -239,7 +240,7 @@ class Bert(PreTrainedBertModel):
                 '''
                 pooled_facet=self.sent['mf']['v_'+str(i)](sequence_output[:,i])
                 #pool_output_list.append(pooled_facet)
-                pooled_facet = sequence_output[:,i]
+                #pooled_facet = sequence_output[:,i]
                 send_emb, recv_emb = pooled_facet[:half], pooled_facet[half:]
                 send_emb, recv_emb = self.sent['mf']['s_'+str(i)](send_emb), self.sent['mf']['s_'+str(i)](recv_emb)
                 send_emb_list.append(send_emb)
@@ -254,8 +255,8 @@ class Bert(PreTrainedBertModel):
             send_recv_list=[send_emb_tensor, recv_emb_tensor]
             
             #compute the variance between the facets
-            self.emedding_var_after_trans=self.var_of_embedding(torch.cat(send_recv_list,dim=1).transpose(0,1))
-            
+            self.emedding_var_after_trans=self.var_of_embedding(torch.cat(send_recv_list,dim=1).transpose(0,1),dim=1)
+            self.emedding_var_across = self.var_of_embedding(torch.cat(send_recv_list, dim=1).transpose(0, 1),dim=0)
             '''
             if np.random.uniform()<=0.5:
                  choice = np.random.randint(3, size=1).item()
@@ -279,37 +280,39 @@ class Bert(PreTrainedBertModel):
 
 
             elif self.extra_token=='vocab':
-                ''''
-                half = send.shape[1] 
-
-                mask = torch.cat(att_mask, dim=0)
-                masked_label = lm_labels.clone().detach()
-                masked_label[masked_label>0] = 0
-                masked_label = -1*masked_label
-
-                true_label = lm_labels.clone().detach()
-                true_label[true_label==-1]=0
-
-                token_index = torch.cat(tokens,dim=0)
-                #mask out masked token
-                token_index = token_index*masked_label 
-                token_index = token_index + true_label
 
 
-                score_left=model.model.get_probs(send, token_index[half:], mask[half:,:])
+                token_index = torch.cat(input_ids, dim=0)
+                freq_w = torch.gather(self.prob_w, 1, index=token_index)
+                token_embeds = self.bert.embeddings.word_embeddings(token_index[:,4:])
 
-                score_right = model.model.get_probs(recv, token_index[:half], mask[:half, :])
-                '''
-                left_index = input_ids[0]
-                right_index = input_ids[1]
-                dot_left = self.get_dot_vocab(send_emb_tensor)
-                dot_right = self.get_dot_vocab(recv_emb_tensor)
+                score_left = self.get_probs_hidden(send_emb_tensor, token_embeds[half:])
+                score_right = self.get_probs_hidden(recv_emb_tensor, token_embeds[:half])
 
-                dot_left = self.agg_function_map(dot_left, self.agg_function, dim=0)
-                dot_right = self.agg_function_map(dot_right, self.agg_function, dim=0)
+                score_left = self.agg_function_map(torch.stack(score_left), self.agg_function, dim=0)
+                score_right = self.agg_function_map(torch.stack(score_right), self.agg_function, dim=0)
 
-                score_left = self.vocab_prob(dot_left, right_index, att_mask[half:, :])
-                score_right = self.vocab_prob(dot_right, left_index, att_mask[:half, :])
+                #score_left = self.word2vec_loss(score_left, att_mask[half:, :], freq_w[half:])
+                #score_right  = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
+                freq_w= freq_w[:,4:]
+                score_left = self.masked_softmax(score_left,  att_mask[half:, :],
+                                                 reduce_func='log',word_weight=freq_w[half:])
+                score_right = self.masked_softmax(score_right, att_mask[:half, :],
+                                                  reduce_func='log',word_weight=freq_w[:half])
+
+
+
+                # left_index = input_ids[0]
+                # right_index = input_ids[1]
+                #
+                # dot_left = self.get_dot_vocab(send_emb_tensor)
+                # dot_right = self.get_dot_vocab(recv_emb_tensor)
+                #
+                # dot_left = self.agg_function_map(dot_left, self.agg_function, dim=0)
+                # dot_right = self.agg_function_map(dot_right, self.agg_function, dim=0)
+                #
+                # score_left = self.vocab_prob(dot_left, right_index, att_mask[half:, :])
+                # score_right = self.vocab_prob(dot_right, left_index, att_mask[:half, :])
 
 
 
@@ -454,13 +457,14 @@ class Bert(PreTrainedBertModel):
             b_norm = b
         return torch.matmul(a_norm,b_norm.transpose(0, 1)).transpose(1,2)
     
-    def var_of_embedding(self,inputs):
+    def var_of_embedding(self,inputs,dim):
         #(batch, facet, embedding)
-        
         inputs_norm = inputs/inputs.norm(dim=2,keepdim=True)
-        pred_mean = inputs_norm.mean(dim = 1, keepdim = True)
+        pred_mean = inputs_norm.mean(dim = dim, keepdim = True)
         loss_set_div = - torch.mean( (inputs_norm - pred_mean).norm(dim = 2))
         return loss_set_div
+
+
 
 
     def agg_function_map(self,score,method,dim):
@@ -503,18 +507,59 @@ class Bert(PreTrainedBertModel):
         else:
             pass
 
+    def word2vec_loss(self, dot, mask, word_weight):
 
-    def masked_softmax(self, prob, mask):
+        half=dot.shape[0]
+        length=dot.shape[-1]
+        freq_w_mask = word_weight*mask
+        #freq_w_mask = mask
+        freq_w_mask = freq_w_mask[:, 4:]
+
+        neg_freq_w_sum = freq_w_mask.sum().expand(mask.shape[0]) - freq_w_mask.sum(dim=1)
+
+        freq_w_mask = freq_w_mask.reshape(-1,1)
+        dot = dot.reshape(half,-1,1)
+        all=torch.ones(half*length,1).cuda()
+
+        loss_list=[]
+        for i in range(half):
+            labels = torch.cat([torch.zeros(i*length),torch.ones(length),torch.zeros((half-i-1)*length)])
+            labels = torch.autograd.Variable(labels).cuda()
+            labels = labels.unsqueeze(dim=1)
+
+            per_loss = nn.functional.binary_cross_entropy_with_logits(dot[i],labels,
+                                                                      weight=freq_w_mask,reduction='none')
+            pos_loss = (per_loss*labels).sum()
+
+            neg_loss = (per_loss*(all-labels)).sum()
+            neg_loss = neg_loss/neg_freq_w_sum[0]
+            loss_list.append(pos_loss+neg_loss)
+
+        return torch.stack(loss_list).mean()
+
+    def masked_softmax(self, prob, mask, reduce_func=None, word_weight=None):
+        '''
+        mask out padding
+        '''
         mask = mask[:, 4:]
         half = prob.shape[0]
         prob = prob * mask.float()
         prob = torch.nn.functional.softmax(prob.reshape(half, -1), dim=1)
 
         prob = prob.reshape(half, half, -1)
-        prob = prob * mask.float()
-        #normalize the probability again
-        prob = prob / (prob.sum(dim=(1, 2), keepdim=True) + 1e-13)
-        prob = prob.sum(dim=2)
+        if reduce_func == 'log':
+            prob = torch.log(prob)
+            prob = (prob * mask).sum(dim=2) / mask.sum(dim=1)
+
+        elif reduce_func=='weighted':
+            prob = torch.log(prob)
+            prob = prob * word_weight
+            prob = (prob * mask).sum(dim=2) / mask.sum(dim=1)
+        else:
+            prob = prob * mask.float()
+            # normalize the probability again
+            prob = prob / (prob.sum(dim=(1, 2), keepdim=True) + 1e-13)
+            prob = prob.sum(dim=2)
         return prob
 
 
@@ -534,8 +579,9 @@ class Bert(PreTrainedBertModel):
             score.append(prob)
         return score
 
+
     def get_dot_vocab(self, facet_set):
-        token_embedding_weights = self.bert.embeddings.word_embeddings.weight
+        token_embedding_weights = self.bert.embeddings.word_embeddings.weight#.detach().clone()
         facet_dot = torch.matmul(facet_set, token_embedding_weights.T)
         return facet_dot
 

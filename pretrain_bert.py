@@ -35,6 +35,21 @@ from olfmlm.optim import Adam
 from olfmlm.utils import Timers
 from olfmlm.utils import save_checkpoint
 from olfmlm.utils import load_checkpoint
+from olfmlm.find_neighbors import Vocab_finder
+
+finder =Vocab_finder()
+def check_vocab(model,tokenizer):
+
+    model.eval()
+    word_embed=model.model.bert.embeddings.word_embeddings.weight.cpu().detach().numpy()
+    finder.build_faiss(word_embed)
+    for _ in range(3):
+        choose_id = random.randint(0, finder.total_examples - 1)
+        view_list = finder.get_facet(model, tokenizer,choose_id)
+        finder.query(view_list,choose_id,tokenizer)
+        print('\n')
+
+    model.train()
 
 
 global_weight=None
@@ -203,9 +218,10 @@ def forward_step(data, model, criterion, modes, args):
                     loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                 
                 elif args.extra_token =='vocab':
-                    
-                    loss_left = criterion_cls(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
-                    loss_right = criterion_cls(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                    #loss_left=score_left
+                    #loss_right=score_right
+                    loss_left = criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                    loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                 else:
                     loss_left = criterion_cls(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
 
@@ -242,7 +258,6 @@ def backward_step(optimizer, model, losses, num_tokens, args):
         total_loss = losses['mlm']
     else:
         total_loss = sum(losses.values())
-
     #total_loss = total_loss/2
     total_loss.backward()
 
@@ -350,7 +365,7 @@ def get_mode_from_stage(current_stage, args):
     return [np.random.choice(modes, p=p)]
 
 def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args,
-                current_stage=None, next_stage=None, val_data=None):
+                current_stage=None, next_stage=None, val_data=None, tz=None):
     """Train one full epoch."""
     print("Starting training of epoch {}".format(epoch), flush=True)
     # Turn on training mode which enables dropout.
@@ -458,7 +473,9 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 #             print(model.model.sent.mf.v_1.dense.weight)
 #             print(model.model.sent.mf.v_2.dense.weight)
 #             print(model.model.sent.mf.v_3.dense.weight)
-            
+
+            check_vocab(model, tz)
+
             log_tokens = 0
             learning_rate = optimizer.param_groups[0]['lr']
             avg_loss = {}
@@ -485,6 +502,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
                 #metrics['var_before_pool']=model.model.embedding_var_before_pool
                 #metrics['var_after_pool']=model.model.embedding_var_after_pool
                 metrics['var_after_trans']=model.model.emedding_var_after_trans
+                metrics['emedding_var_across'] = model.model.emedding_var_across
                 #experiment.log_curve(name='softmax_weight:', x=[1,2,3,4,5,6],y=global_weight.detach().cpu().numpy().tolist(), overwrite=True)
             experiment.log_metrics(metrics)
             #tot_iteration += iteration
@@ -598,7 +616,7 @@ def main():
 
     # Arguments.
     args = get_args()
-    
+
     experiment=None
 
     experiment = Experiment(api_key='Bq7FWdV8LPx8HkWh67e5UmUPm',
@@ -607,7 +625,7 @@ def main():
                              disabled=(not args.track_results))
     experiment.log_parameters(vars(args))
 
-     
+
     metrics = {}
 
     # Pytorch distributed.
@@ -664,7 +682,7 @@ def main():
 
             # Train
             train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args,
-                        current_stage=current_stage, next_stage=next_stage, val_data=val_data)
+                        current_stage=current_stage, next_stage=next_stage, val_data=val_data, tz=tokenizer)
             '''
             elapsed_time = timers('epoch time').elapsed()
              
