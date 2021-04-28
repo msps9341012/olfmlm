@@ -31,16 +31,26 @@ pip install -r requirements.txt
     - And then set all the saving and loading paths in the ```paths.py```.
   - Also copy the ```/iesl/canvas/rueiyaosun/olfmlm/data_utils/random_index.npy``` to the same location in your workspace. 
     - This file is to make sure we will have the same training/dev/testing set.
+  - Copy the word_frequency count file, ```/iesl/canvas/rueiyaosun/freq_counter.pkl``` to your space
+    - Set your path in [here](https://github.com/msps9341012/olfmlm/blob/mf/model/new_models.py#L14)
     
 - Commands for training.
   ```
   bash olfmlm/scripts/pretrain_bert.sh --model-type mf --pretrained-bert --save-iters 86400 --lr 2e-5 --agg-function max --warmup 0 --extra-token token
   ```
     - This means using pretrain-bert weights, do not use warmup and training with mf task. And save the model every 86400 iterations (basically a day)
+      - Change the save folder name in [here](https://github.com/msps9341012/olfmlm/blob/mf/arguments.py#L307) in case you want to try different setting
     - The choices for agg-function are 'max', 'logsum', 'softmax' (not stable). 
     - While for the extra-token, we have 'token', 'vocab', 'cls', 'avg' and 'all'.
+    - Now in the logging iteration during **training**, the code will also do the nearest token finding
+      - Update your path to ```raw_val.pkl``` in [here](https://github.com/msps9341012/olfmlm/blob/mf/find_neighbors.py#L34)
     - The remaining arguments are the same to the original repo. 
       - You can see more details descriptions in ```arguments.py```
+    - Dropout code is in [here](https://github.com/msps9341012/olfmlm/blob/mf/model/new_models.py#L265-L271)
+      - Make the model only consider one facet
+      - _Have not tested it on our new setting, so might have some issues_
+  
+  
 
 - Visualization
   - Get the output hidden states for all facets, you can change the ```save_dir``` within the file.
@@ -54,7 +64,7 @@ pip install -r requirements.txt
     - Analyze_emb.ipynb : find the nearest sentence
     - Analyze_grad.ipynb : visualize the important tokens in the sentence 
   
-  Make sure to **move** those ```.ipynb``` files outside the ```olfmlm``` fold to prevent path conflicts.
+  Make sure to **move** those ```.ipynb``` files outside the ```olfmlm``` fold to prevent path from conflicts.
     
 
     
