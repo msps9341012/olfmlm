@@ -245,7 +245,7 @@ def forward_step(data, model, criterion, modes, args):
             if args.agg_function =='hybrid':
                 pass
 
-            print(losses[mode])
+            #print(losses[mode])
         else:
             score = score.view(-1, 2) if mode in ["tc", "cap"] else score
             losses[mode] = criterion_cls(score.contiguous().float(),
@@ -623,7 +623,7 @@ def main():
     args = get_args()
 
     experiment=None
-    
+
     experiment = Experiment(api_key='Bq7FWdV8LPx8HkWh67e5UmUPm',
                              project_name='testing',
                              auto_param_logging=False, auto_metric_logging=False,
