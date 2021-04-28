@@ -39,8 +39,8 @@ args.pretrained_bert=True
 args.modes='mlm,mf'
 args.model_type='mf+mlm'
 #although extra_token and agg_function do not matter in forward function, we only care about the facets' outputs
-args.extra_token=mode.split('_')[1]
-args.agg_function=mode.split('_')[0]
+args.extra_token='vocab'
+args.agg_function='max'
 args.same_weight=False
 
 '''
@@ -62,7 +62,7 @@ def truncate_sequence(tokens):
     """
     Truncate sequence pair
     """
-    max_num_tokens = val_data.dataset.max_seq_len-2-3
+    max_num_tokens = val_data.dataset.max_seq_len-1-3
     while True:
         if len(tokens) <= max_num_tokens:
             break
@@ -84,7 +84,7 @@ with tqdm(total=159973) as pbar:  #the total number of validation sentences
             '''
             token=tokenizer.EncodeAsIds(sent).tokenization
             truncate_sequence(token)
-            token=[tokenizer.get_command('ENC').Id] + [tokenizer.get_command('s_1').Id] +[tokenizer.get_command('s_2').Id] + [tokenizer.get_command('s_3').Id] + token + [tokenizer.get_command('sep').Id]
+            token=[tokenizer.get_command('ENC').Id] + [tokenizer.get_command('s_1').Id] +[tokenizer.get_command('s_2').Id] + [tokenizer.get_command('s_3').Id] + token
             sent_encode=model.model.bert(torch.tensor([token]),output_all_encoded_layers=False)[0]
             for i in range(1,4):
                 tmp=model.model.sent['mf']['v_'+str(i)](sent_encode[:,i])

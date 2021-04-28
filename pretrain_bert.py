@@ -39,7 +39,9 @@ from olfmlm.find_neighbors import Vocab_finder
 
 finder =Vocab_finder()
 def check_vocab(model,tokenizer):
-
+    '''
+    Check the nearest neighbors during training
+    '''
     model.eval()
     word_embed=model.model.bert.embeddings.word_embeddings.weight.cpu().detach().numpy()
     finder.build_faiss(word_embed)
@@ -126,7 +128,6 @@ def setup_model_and_optimizer(args, tokenizer):
     if args.load is not None:
         args.epoch = load_checkpoint(model, optimizer, lr_scheduler, args)
         args.resume_dataloader = True
-
     return model, optimizer, lr_scheduler, criterion
 
 
@@ -211,15 +212,18 @@ def forward_step(data, model, criterion, modes, args):
             score_left, score_right = score
             if args.agg_function in ['max','logsum','concat']:
                 if args.extra_token=='token':
-                    
-                    score_left = torch.log(score_left)
-                    score_right = torch.log(score_right)
+                    #loss_left = score_left
+                    #loss_right = score_right
+
                     loss_left = criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                     loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
-                
+
                 elif args.extra_token =='vocab':
-                    #loss_left=score_left
-                    #loss_right=score_right
+                    '''
+                    if using word2vec, comment out the below criterion_nll lines
+                    loss_left=score_left
+                    loss_right=score_right
+                    '''
                     loss_left = criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                     loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                 else:
@@ -241,7 +245,7 @@ def forward_step(data, model, criterion, modes, args):
             if args.agg_function =='hybrid':
                 pass
 
-            #print(losses[mode])
+            print(losses[mode])
         else:
             score = score.view(-1, 2) if mode in ["tc", "cap"] else score
             losses[mode] = criterion_cls(score.contiguous().float(),
@@ -474,6 +478,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 #             print(model.model.sent.mf.v_2.dense.weight)
 #             print(model.model.sent.mf.v_3.dense.weight)
 
+
             check_vocab(model, tz)
 
             log_tokens = 0
@@ -618,7 +623,7 @@ def main():
     args = get_args()
 
     experiment=None
-
+    
     experiment = Experiment(api_key='Bq7FWdV8LPx8HkWh67e5UmUPm',
                              project_name='testing',
                              auto_param_logging=False, auto_metric_logging=False,
@@ -640,10 +645,11 @@ def main():
     (train_data, val_data, test_data), tokenizer = data_config.apply(args)
     args.data_size = tokenizer.num_tokens
 
+
     # Model, optimizer, and learning rate.
     model, optimizer, lr_scheduler, criterion = setup_model_and_optimizer(
         args, tokenizer)
-    
+
     #model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
     timers("total time").start()
     epoch = 0

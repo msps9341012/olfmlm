@@ -46,8 +46,7 @@ class Vocab_finder:
         token = tokenizer.EncodeAsIds(sent).tokenization
         truncate_sequence(token)
         token = [tokenizer.get_command('ENC').Id] + [tokenizer.get_command('s_1').Id] + [
-            tokenizer.get_command('s_2').Id] + [tokenizer.get_command('s_3').Id] + token + [
-                    tokenizer.get_command('sep').Id]
+            tokenizer.get_command('s_2').Id] + [tokenizer.get_command('s_3').Id] + token
         sent_encode = model.model.bert(torch.tensor([token]).cuda(), output_all_encoded_layers=False)[0]
         view_list=[]
         for i in range(1, 4):

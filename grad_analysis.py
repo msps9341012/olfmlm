@@ -79,7 +79,7 @@ with tqdm(total=159973) as pbar:
         for sent in val_data.dataset.sentence_split(doc):
             token=tokenizer.EncodeAsIds(sent).tokenization
             truncate_sequence(token)
-            token=[tokenizer.get_command('ENC').Id] + [tokenizer.get_command('s_1').Id] +[tokenizer.get_command('s_2').Id] + [tokenizer.get_command('s_3').Id] + token + [tokenizer.get_command('sep').Id]
+            token=[tokenizer.get_command('ENC').Id] + [tokenizer.get_command('s_1').Id] +[tokenizer.get_command('s_2').Id] + [tokenizer.get_command('s_3').Id] + token
             sent_encode=model.model.bert(torch.tensor([token]),output_all_encoded_layers=False)[0]
             for i in range(1,4):
                 tmp=model.model.sent['mf']['v_'+str(i)](sent_encode[:,i])

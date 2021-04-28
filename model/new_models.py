@@ -6,6 +6,10 @@ from collections import Counter
 import pickle
 
 
+# def set_requires_grad(module, val):
+#     for p in module.parameters():
+#         p.requires_grad = val
+
 def get_freq_weight():
     with open('/iesl/canvas/rueiyaosun/freq_counter.pkl', 'rb') as handle:
         freq = pickle.load(handle) #only include vocab count>1, so the size is smaller than 30522
@@ -14,6 +18,7 @@ def get_freq_weight():
     freq = np.array(freq) - 1
     prob_w = freq / sum(freq)
     prob_w = 1e-4 / (prob_w + 1e-4)
+    prob_w[102] = 0 #zero out [SEP]
     return prob_w
 
 class BertSentHead(nn.Module):
@@ -210,6 +215,7 @@ class Bert(PreTrainedBertModel):
                                                    checkpoint_activations=checkpoint_activations)
          
         scores = {}
+
         if "mlm" in modes:
             scores["mlm"] = self.lm(sequence_output)
         if "nsp" in modes:
@@ -239,8 +245,6 @@ class Bert(PreTrainedBertModel):
                 Get facet by index and pass through pooler layer and transform layer
                 '''
                 pooled_facet=self.sent['mf']['v_'+str(i)](sequence_output[:,i])
-                #pool_output_list.append(pooled_facet)
-                #pooled_facet = sequence_output[:,i]
                 send_emb, recv_emb = pooled_facet[:half], pooled_facet[half:]
                 send_emb, recv_emb = self.sent['mf']['s_'+str(i)](send_emb), self.sent['mf']['s_'+str(i)](recv_emb)
                 send_emb_list.append(send_emb)
@@ -257,34 +261,48 @@ class Bert(PreTrainedBertModel):
             #compute the variance between the facets
             self.emedding_var_after_trans=self.var_of_embedding(torch.cat(send_recv_list,dim=1).transpose(0,1),dim=1)
             self.emedding_var_across = self.var_of_embedding(torch.cat(send_recv_list, dim=1).transpose(0, 1),dim=0)
+
             '''
+            Code related to dropout
             if np.random.uniform()<=0.5:
                  choice = np.random.randint(3, size=1).item()
                  send_emb_tensor = send_emb_tensor[choice].unsqueeze(dim=0)
                  recv_emb_tensor = recv_emb_tensor[choice].unsqueeze(dim=0)
             '''
 
+            #get the frequency weight by token index
+            token_index = torch.cat(input_ids, dim=0)
+            freq_w = torch.gather(self.prob_w, 1, index=token_index)
+
+
             '''
             compute similarity score matrix corresponding to different choices
             '''
+
             if self.extra_token=='token':
                 token_hidden = sequence_output[:, 4:, :]
-                score_left = self.get_probs_hidden(send_emb_tensor, token_hidden[half:])
-                score_right = self.get_probs_hidden(recv_emb_tensor, token_hidden[:half])
-                
+                token_hidden_proj = self.lm.transform(token_hidden)
+
+                score_left = self.get_probs_hidden(send_emb_tensor, token_hidden_proj[half:])
+                score_right = self.get_probs_hidden(recv_emb_tensor, token_hidden_proj[:half])
+
                 score_left = self.agg_function_map(torch.stack(score_left), self.agg_function, dim=0)
                 score_right = self.agg_function_map(torch.stack(score_right), self.agg_function, dim=0)
 
-                score_left = self.masked_softmax(score_left,  att_mask[half:, :])
-                score_right = self.masked_softmax(score_right, att_mask[:half, :])
+                # score_left = self.word2vec_loss(score_left, att_mask[half:, :], freq_w[half:])
+                # score_right  = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
+
+                freq_w = freq_w[:, 4:]
+                score_left = self.masked_softmax(score_left,  att_mask[half:, :],
+                                                 reduce_func='sum',word_weight=freq_w[half:])
+                score_right = self.masked_softmax(score_right, att_mask[:half, :],
+                                                  reduce_func='sum',word_weight=freq_w[:half])
+
 
 
             elif self.extra_token=='vocab':
-
-
-                token_index = torch.cat(input_ids, dim=0)
-                freq_w = torch.gather(self.prob_w, 1, index=token_index)
-                token_embeds = self.bert.embeddings.word_embeddings(token_index[:,4:])
+                #bert vocab embedding by token index
+                token_embeds = self.bert.embeddings.word_embeddings(token_index[:, 4:])
 
                 score_left = self.get_probs_hidden(send_emb_tensor, token_embeds[half:])
                 score_right = self.get_probs_hidden(recv_emb_tensor, token_embeds[:half])
@@ -292,13 +310,18 @@ class Bert(PreTrainedBertModel):
                 score_left = self.agg_function_map(torch.stack(score_left), self.agg_function, dim=0)
                 score_right = self.agg_function_map(torch.stack(score_right), self.agg_function, dim=0)
 
-                #score_left = self.word2vec_loss(score_left, att_mask[half:, :], freq_w[half:])
-                #score_right  = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
+                '''
+                if using word2vec loss, then comment out the below masked_softmax lines
+                
+                score_left = self.word2vec_loss(score_left, att_mask[half:, :], freq_w[half:])
+                score_right = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
+                '''
+
                 freq_w= freq_w[:,4:]
                 score_left = self.masked_softmax(score_left,  att_mask[half:, :],
-                                                 reduce_func='log',word_weight=freq_w[half:])
+                                                 reduce_func='weighted',word_weight=freq_w[half:])
                 score_right = self.masked_softmax(score_right, att_mask[:half, :],
-                                                  reduce_func='log',word_weight=freq_w[:half])
+                                                  reduce_func='weighted',word_weight=freq_w[:half])
 
 
 
@@ -541,32 +564,39 @@ class Bert(PreTrainedBertModel):
         '''
         mask out padding
         '''
+
         mask = mask[:, 4:]
         half = prob.shape[0]
         prob = prob * mask.float()
-        prob = torch.nn.functional.softmax(prob.reshape(half, -1), dim=1)
-
-        prob = prob.reshape(half, half, -1)
         if reduce_func == 'log':
-            prob = torch.log(prob)
+            prob = torch.nn.functional.log_softmax(prob.reshape(half, -1), dim=1)
+            prob = prob.reshape(half, half, -1)
             prob = (prob * mask).sum(dim=2) / mask.sum(dim=1)
 
         elif reduce_func=='weighted':
-            prob = torch.log(prob)
+            prob = torch.nn.functional.log_softmax(prob.reshape(half, -1), dim=1)
+            prob = prob.reshape(half, half, -1)
             prob = prob * word_weight
             prob = (prob * mask).sum(dim=2) / mask.sum(dim=1)
+
         else:
+            prob = torch.nn.functional.softmax(prob.reshape(half, -1), dim=1)
+
+            prob = prob.reshape(half, half, -1)
+
             prob = prob * mask.float()
             # normalize the probability again
             prob = prob / (prob.sum(dim=(1, 2), keepdim=True) + 1e-13)
             prob = prob.sum(dim=2)
+            prob = torch.log(prob+1e-13)
+
         return prob
 
 
 
     def get_probs_hidden(self, facet_set, hidden_output):
         half = hidden_output.shape[0]
-        #token_hidden = hidden_output 
+        #token_hidden = hidden_output
         token_hidden = hidden_output.detach().clone()
         score=[]
         
@@ -605,40 +635,3 @@ class Bert(PreTrainedBertModel):
         score = (sel_prob * mask_all).sum(dim=2)/mask_all.sum(dim=2)
         #score = (sel_prob * mask_all).sum(dim=2)
         return score
-        # mask = mask[:, 4:]
-        # sel_prob = sel_prob * mask.float()
-        # breakpoint()
-        #
-        #
-        # mask = mask[:, 4:]
-        # prob = prob * mask.float()
-        # prob = torch.nn.functional.softmax(prob.reshape(half, -1), dim=1)
-        #
-        #
-        #
-        #
-        #
-        #
-        #
-        # # filter out unpad, unused, cls, sep
-        # speical_tokens = facet_prob[:, :, 0:4].sum(dim=2, keepdim=True) + facet_prob[:, :, 101:104].sum(dim=2,keepdim=True)
-        # truth_probs = facet_prob / (facet_prob.sum(dim=2, keepdim=True) - speical_tokens)
-        #
-        # #truth_probs = facet_prob / facet_prob.sum(dim=2, keepdim=True)
-        #
-        # index_all = index_list.expand(half, half, -1)
-        # index_all = index_all[:,:,4:-1]
-        # mask_all  = mask.expand(half, half, -1)
-        # mask_all  = mask[:, 4:-1].expand(half, half, -1)
-        # score = []
-        # for i in range(3):
-        #     facet_i=truth_probs[i]
-        #     facet_i_all = facet_i.expand(half, half, -1).transpose(1, 0)
-        #     facet_i_all = torch.gather(facet_i_all, dim=2, index=index_all)
-        #     score.append((facet_i_all * mask_all).sum(dim=2))
-        # '''
-        # truth_probs = torch.gather(truth_probs, dim=2, index=index_list.expand(3, index_list.shape[0], index_list.shape[1]))
-        # length_mask = mask[:, 4:-1]
-        # score = (truth_probs[:,:,4:-1] * length_mask).sum(dim=2)
-        # '''
-        # return torch.stack(score)
