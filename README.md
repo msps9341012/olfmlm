@@ -36,9 +36,11 @@ pip install -r requirements.txt
     
 - Commands for training.
   ```
-  bash olfmlm/scripts/pretrain_bert.sh --model-type mf --pretrained-bert --save-iters 86400 --lr 2e-5 --agg-function max --warmup 0 --extra-token token
+  bash olfmlm/scripts/pretrain_bert.sh --model-type mf --pretrained-bert --save-iters 86400 --lr 2e-5 
+              --agg-function max --warmup 0 --extra-token token --same-weight
   ```
-    - This means using pretrain-bert weights, do not use warmup and training with mf task. And save the model every 86400 iterations (basically a day)
+    - This means using pretrain-bert weights, do not use warmup and training with mf task and initialize 3 facets' pooler and transform head weight the same.
+      - Save the model every 86400 iterations (basically a day)
       - Change the save folder name in [here](https://github.com/msps9341012/olfmlm/blob/mf/arguments.py#L307) in case you want to try different setting
     - The choices for agg-function are 'max', 'logsum', 'softmax' (not stable). 
     - While for the extra-token, we have 'token', 'vocab', 'cls', 'avg' and 'all'.
