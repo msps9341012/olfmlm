@@ -19,6 +19,7 @@ import torch
 
 from olfmlm.model.modeling import BertConfig
 from olfmlm.model.modeling import BertLayerNorm
+from olfmlm.model.new_models import BertHeadTransform
 
 from olfmlm.model.new_models import Bert
 
@@ -38,7 +39,30 @@ def get_params_for_weight_decay_optimization(module):
             no_weight_decay_params['params'].extend(
                 [p for n, p in list(module_._parameters.items())
                  if p is not None and n == 'bias'])
+    return weight_decay_params, no_weight_decay_params
 
+
+def get_params_for_dict_format(module_dict):
+    '''
+    Although the above function also can return the same result, just create another one in case of other issues.
+    '''
+    weight_decay_params = {'params': []}
+    no_weight_decay_params = {'params': [], 'weight_decay': 0}
+    for module_obj in module_dict:
+        if isinstance(module_obj, BertHeadTransform):
+            continue
+        for module_ in module_obj.modules():
+            if isinstance(module_, (BertLayerNorm, torch.nn.LayerNorm)):
+                no_weight_decay_params['params'].extend(
+                    [p for p in list(module_._parameters.values())
+                     if p is not None])
+            else:
+                weight_decay_params['params'].extend(
+                    [p for n, p in list(module_._parameters.items())
+                     if p is not None and n != 'bias'])
+                no_weight_decay_params['params'].extend(
+                    [p for n, p in list(module_._parameters.items())
+                 if p is not None and n == 'bias'])
     return weight_decay_params, no_weight_decay_params
 
 
@@ -99,7 +123,12 @@ class BertModel(torch.nn.Module):
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.pooler))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.embeddings))
         for classifier in self.model.sent.values():
-            param_groups += list(get_params_for_weight_decay_optimization(classifier))
+            if isinstance(classifier, torch.nn.ModuleDict):
+                #handle the mf dict type
+                classifier = classifier.values()
+                param_groups += list(get_params_for_dict_format(classifier))
+            else:
+                param_groups += list(get_params_for_weight_decay_optimization(classifier))
         for k, classifier in self.model.tok.items():
             if k == "sbo":
                 param_groups += list(get_params_for_weight_decay_optimization(classifier.transform))

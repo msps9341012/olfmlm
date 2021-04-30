@@ -32,15 +32,18 @@ class BertSentHead(nn.Module):
 
 
 class BertHeadTransform(nn.Module):
-    def __init__(self, config, input_size=None):
+    def __init__(self, config, input_size=None, use_perturbation=False):
         super(BertHeadTransform, self).__init__()
         input_size = input_size if input_size else config.hidden_size
         self.dense = nn.Linear(input_size, config.hidden_size)
+        if use_perturbation:
+            self.perturbation = nn.Linear(input_size, config.hidden_size,bias=False)
         self.transform_act_fn = ACT2FN[config.hidden_act] \
             if isinstance(config.hidden_act, str) else config.hidden_act
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layernorm_epsilon)
 
     def forward(self, hidden_states):
+        #merge the self.perturbation here
         hidden_states = self.dense(hidden_states)
         hidden_states = self.transform_act_fn(hidden_states)
         hidden_states = self.LayerNorm(hidden_states)
@@ -62,7 +65,7 @@ class BertLMTokenHead(nn.Module):
 
     def forward(self, hidden_states):
         hidden_states = self.transform(hidden_states)
-        hidden_states = self.decoder(hidden_states) + self.bias
+        hidden_states = self.decoder(hidden_states)+ self.bias
         return hidden_states
 
 
@@ -182,17 +185,17 @@ class Bert(PreTrainedBertModel):
         '''
         if "mf" in modes:
             self.sent["mf"] = torch.nn.ModuleDict()
-            self.sent["mf"]['s_1']=BertHeadTransform(config)
-            self.sent["mf"]['s_2']=BertHeadTransform(config)
-            self.sent["mf"]['s_3']=BertHeadTransform(config)
-            self.sent['mf']['extra_head']=BertHeadTransform(config)
+            self.sent["mf"]['s_1'] = BertHeadTransform(config, use_perturbation=False)
+            self.sent["mf"]['s_2'] = BertHeadTransform(config, use_perturbation=False)
+            self.sent["mf"]['s_3'] = BertHeadTransform(config, use_perturbation=False)
+            #self.sent['mf']['extra_head']=BertHeadTransform(config)
             self.extra_token = extra_token
             self.agg_function = agg_function
-            self.sent["mf"]['v_1']=BertPoolerforview(config)
-            self.sent["mf"]['v_2']=BertPoolerforview(config)
-            self.sent["mf"]['v_3']=BertPoolerforview(config)
-            self.sent["mf"]['extra_pool']=BertPoolerforview(config)
-            self.sent["mf"]['weighted'] = nn.Linear(config.hidden_size*2, 1)
+            self.sent["mf"]['v_1'] = BertPoolerforview(config)
+            self.sent["mf"]['v_2'] = BertPoolerforview(config)
+            self.sent["mf"]['v_3'] = BertPoolerforview(config)
+            #self.sent["mf"]['extra_pool']=BertPoolerforview(config)
+            #self.sent["mf"]['weighted'] = nn.Linear(config.hidden_size*2, 1)
             self.softmax_weight=None
             self.prob_w = torch.tensor(get_freq_weight(),dtype=torch.float32).cuda()
             self.prob_w = torch.stack([self.prob_w]*32)
@@ -294,9 +297,9 @@ class Bert(PreTrainedBertModel):
 
                 freq_w = freq_w[:, 4:]
                 score_left = self.masked_softmax(score_left,  att_mask[half:, :],
-                                                 reduce_func='sum',word_weight=freq_w[half:])
+                                                 reduce_func='weighted', word_weight=freq_w[half:])
                 score_right = self.masked_softmax(score_right, att_mask[:half, :],
-                                                  reduce_func='sum',word_weight=freq_w[:half])
+                                                  reduce_func='weighted', word_weight=freq_w[:half])
 
 
 
@@ -319,9 +322,9 @@ class Bert(PreTrainedBertModel):
 
                 freq_w= freq_w[:,4:]
                 score_left = self.masked_softmax(score_left,  att_mask[half:, :],
-                                                 reduce_func='weighted',word_weight=freq_w[half:])
+                                                 reduce_func='weighted', word_weight=freq_w[half:])
                 score_right = self.masked_softmax(score_right, att_mask[:half, :],
-                                                  reduce_func='weighted',word_weight=freq_w[:half])
+                                                  reduce_func='weighted', word_weight=freq_w[:half])
 
 
 
@@ -471,7 +474,7 @@ class Bert(PreTrainedBertModel):
     def inner_product(self, a, b):
         return torch.mm(a, b.transpose(0, 1))
     
-    def cross_cos_sim(self,a,b,norm=True):
+    def cross_cos_sim(self, a, b, norm=True):
         if norm:
             a_norm = a / a.norm(dim=2)[:, :, None]
             b_norm = b / b.norm(dim=1)[:, None]
@@ -480,27 +483,27 @@ class Bert(PreTrainedBertModel):
             b_norm = b
         return torch.matmul(a_norm,b_norm.transpose(0, 1)).transpose(1,2)
     
-    def var_of_embedding(self,inputs,dim):
+    def var_of_embedding(self, inputs, dim):
         #(batch, facet, embedding)
-        inputs_norm = inputs/inputs.norm(dim=2,keepdim=True)
-        pred_mean = inputs_norm.mean(dim = dim, keepdim = True)
-        loss_set_div = - torch.mean( (inputs_norm - pred_mean).norm(dim = 2))
+        inputs_norm = inputs/inputs.norm(dim=2, keepdim=True)
+        pred_mean = inputs_norm.mean(dim=dim, keepdim=True)
+        loss_set_div = - torch.mean( (inputs_norm - pred_mean).norm(dim=2))
         return loss_set_div
 
 
 
 
-    def agg_function_map(self,score,method,dim):
-        if method=='max':
+    def agg_function_map(self, score, method, dim):
+        if method == 'max':
             return torch.amax(score,dim=dim)
-        elif method=='logsum':
+        elif method == 'logsum':
             return torch.logsumexp(score,dim=dim)
 
-        elif method=='softmax':
+        elif method == 'softmax':
             dim = score.shape[-1]
             return torch.nn.functional.softmax(score, dim=dim).mean(dim=0)
 
-        elif method=='concat':
+        elif method == 'concat':
             # send, recv = model.model.send_recv_list
             # send = send.transpose(1,0).reshape(score.shape[-1],-1)
             # recv = recv.transpose(1,0).reshape(score.shape[-1],-1)
@@ -511,7 +514,7 @@ class Bert(PreTrainedBertModel):
             '''
             pass
 
-        elif method=='w_softmax':
+        elif method == 'w_softmax':
             '''
             score=torch.nn.functional.softmax(score,dim=3)
             softmax_weight=model.model.sent['mf']['weighted'](model.model.softmax_weight) #16,9,1
@@ -525,15 +528,15 @@ class Bert(PreTrainedBertModel):
             '''
             pass
 
-        elif method=='hybrid':
+        elif method == 'hybrid':
             pass
         else:
             pass
 
     def word2vec_loss(self, dot, mask, word_weight):
 
-        half=dot.shape[0]
-        length=dot.shape[-1]
+        half = dot.shape[0]
+        length = dot.shape[-1]
         freq_w_mask = word_weight*mask
         #freq_w_mask = mask
         freq_w_mask = freq_w_mask[:, 4:]
@@ -542,7 +545,7 @@ class Bert(PreTrainedBertModel):
 
         freq_w_mask = freq_w_mask.reshape(-1,1)
         dot = dot.reshape(half,-1,1)
-        all=torch.ones(half*length,1).cuda()
+        all = torch.ones(half*length,1).cuda()
 
         loss_list=[]
         for i in range(half):

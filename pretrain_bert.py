@@ -31,6 +31,7 @@ from olfmlm.learning_rates import AnnealingLR
 from olfmlm.model import BertModel
 from olfmlm.model import get_params_for_weight_decay_optimization
 from olfmlm.model import DistributedDataParallel as DDP
+
 from olfmlm.optim import Adam
 from olfmlm.utils import Timers
 from olfmlm.utils import save_checkpoint
@@ -76,6 +77,23 @@ def get_model(tokenizer, args):
     return model
 
 
+
+def get_params_for_headtransform(module):
+    weight_decay_params = {'params': []}
+    perturbation_params_list = []
+    no_weight_decay_params = {'params': [], 'weight_decay': 0}
+
+    for name, param in module.named_parameters():
+        if name=='dense.weight':
+            weight_decay_params['params'].extend([param])
+        elif name=='perturbation.weight':
+            perturbation_params_list.extend([param])
+        else:
+            no_weight_decay_params['params'].extend([param])
+
+    return weight_decay_params, no_weight_decay_params, perturbation_params_list
+
+
 def get_optimizer(model, args):
     """Set up the optimizer."""
 
@@ -83,11 +101,32 @@ def get_optimizer(model, args):
     while isinstance(model, DDP):
         model = model.module
 
+
+    # Get the all model parameters excluding model.model.sent.mf.BertHeadTransform
     param_groups = model.get_params()
 
+    '''
+    Get parameters related to model.model.sent.mf.BertHeadTransform
+    We can not get the layer's name by their default code, 
+    so it is difficult to distinguish between dense and our new perturbation layer (they are all Linear type)
+    
+    Although the below operation is a bit brutal and stupid, I am just too lazy to overwrite their function.
+    This process can be fixed and optimized later. 
+    '''
+    perturbation_params_lists = []
+    for module in [model.model.sent.mf.s_1, model.model.sent.mf.s_2, model.model.sent.mf.s_3]:
+        weight_decay_params, no_weight_decay_params, perturbation_params = get_params_for_headtransform(module)
+        param_groups += list((weight_decay_params,no_weight_decay_params))
+        if perturbation_params:
+            perturbation_params_lists += list(perturbation_params)
+
+
+
+    param_groups += [{'params': perturbation_params_lists, 'weight_decay': 0.5}]
+
+
     # Use Adam.
-    optimizer = Adam(param_groups,
-                     lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = Adam(param_groups, lr=args.lr, weight_decay=args.weight_decay)
 
     return optimizer
 
