@@ -42,11 +42,12 @@ class BertHeadTransform(nn.Module):
             if isinstance(config.hidden_act, str) else config.hidden_act
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layernorm_epsilon)
 
-    def forward(self, hidden_states):
+    def forward(self, hidden_states, not_norm=False):
         #merge the self.perturbation here
         hidden_states = self.dense(hidden_states)
         hidden_states = self.transform_act_fn(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states)
+        if not not_norm:
+            hidden_states = self.LayerNorm(hidden_states)
         return hidden_states
 
 
@@ -63,9 +64,9 @@ class BertLMTokenHead(nn.Module):
         self.decoder.weight = bert_model_embedding_weights
         self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
 
-    def forward(self, hidden_states):
-        hidden_states = self.transform(hidden_states)
-        hidden_states = self.decoder(hidden_states)+ self.bias
+    def forward(self, hidden_states, not_norm=False):
+        hidden_states = self.transform(hidden_states, not_norm=not_norm)
+        hidden_states = self.decoder(hidden_states) + self.bias
         return hidden_states
 
 
@@ -148,10 +149,13 @@ class Bert(PreTrainedBertModel):
     ```
     """
 
-    def __init__(self, config, modes=["mlm"], extra_token='cls', agg_function='max'):
+    def __init__(self, config, modes=["mlm"], extra_token='cls', agg_function='max',unnorm_facet=False,unnorm_token=False):
         super(Bert, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertLMTokenHead(config, self.bert.embeddings.word_embeddings.weight)
+
+        self.unnorm_facet = unnorm_facet
+        self.unnorm_token = unnorm_token
         
         self.sent = torch.nn.ModuleDict()
         self.tok = torch.nn.ModuleDict()
@@ -220,7 +224,7 @@ class Bert(PreTrainedBertModel):
         scores = {}
 
         if "mlm" in modes:
-            scores["mlm"] = self.lm(sequence_output)
+            scores["mlm"] = self.lm(sequence_output, not_norm=self.unnorm_token)
         if "nsp" in modes:
             scores["nsp"] = self.sent["nsp"](pooled_output)
         if "psp" in modes:
@@ -238,8 +242,8 @@ class Bert(PreTrainedBertModel):
             #self.embedding_var_before_pool=self.var_of_embedding(sequence_output[:,1:4,:])
             pool_output_list=[]
             
-            l=[] #for weighted sum, now is not our main target
-            r=[] #for weighted sum, now is not our main target
+            l = [] #for weighted sum, now is not our main target
+            r = [] #for weighted sum, now is not our main target
 
             for i in range(1,4):
                 l.append(sequence_output[:,i][:half])
@@ -249,7 +253,7 @@ class Bert(PreTrainedBertModel):
                 '''
                 pooled_facet=self.sent['mf']['v_'+str(i)](sequence_output[:,i])
                 send_emb, recv_emb = pooled_facet[:half], pooled_facet[half:]
-                send_emb, recv_emb = self.sent['mf']['s_'+str(i)](send_emb), self.sent['mf']['s_'+str(i)](recv_emb)
+                send_emb, recv_emb = self.sent['mf']['s_'+str(i)](send_emb, not_norm=self.unnorm_facet), self.sent['mf']['s_'+str(i)](recv_emb, not_norm=self.unnorm_facet)
                 send_emb_list.append(send_emb)
                 recv_emb_list.append(recv_emb)
              
@@ -267,11 +271,11 @@ class Bert(PreTrainedBertModel):
 
             '''
             Code related to dropout
-            if np.random.uniform()<=0.5:
-                 choice = np.random.randint(3, size=1).item()
-                 send_emb_tensor = send_emb_tensor[choice].unsqueeze(dim=0)
-                 recv_emb_tensor = recv_emb_tensor[choice].unsqueeze(dim=0)
             '''
+            # if np.random.uniform()<=0.05:
+            #      choice = np.random.randint(3, size=1).item()
+            #      send_emb_tensor = send_emb_tensor[choice].unsqueeze(dim=0)
+            #      recv_emb_tensor = recv_emb_tensor[choice].unsqueeze(dim=0)
 
             #get the frequency weight by token index
             token_index = torch.cat(input_ids, dim=0)
@@ -284,7 +288,7 @@ class Bert(PreTrainedBertModel):
 
             if self.extra_token=='token':
                 token_hidden = sequence_output[:, 4:, :]
-                token_hidden_proj = self.lm.transform(token_hidden)
+                token_hidden_proj = self.lm.transform(token_hidden,not_norm=self.unnorm_token)
 
                 score_left = self.get_probs_hidden(send_emb_tensor, token_hidden_proj[half:])
                 score_right = self.get_probs_hidden(recv_emb_tensor, token_hidden_proj[:half])
@@ -297,9 +301,9 @@ class Bert(PreTrainedBertModel):
 
                 freq_w = freq_w[:, 4:]
                 score_left = self.masked_softmax(score_left,  att_mask[half:, :],
-                                                 reduce_func='weighted', word_weight=freq_w[half:])
+                                                 reduce_func='sum', word_weight=freq_w[half:])
                 score_right = self.masked_softmax(score_right, att_mask[:half, :],
-                                                  reduce_func='weighted', word_weight=freq_w[:half])
+                                                  reduce_func='sum', word_weight=freq_w[:half])
 
 
 
@@ -568,7 +572,12 @@ class Bert(PreTrainedBertModel):
         mask out padding
         '''
 
+
+
         mask = mask[:, 4:]
+        word_weight = word_weight * mask
+        #normalize
+        word_weight = word_weight / word_weight.sum(dim=1, keepdim=True)
         half = prob.shape[0]
         prob = prob * mask.float()
         if reduce_func == 'log':
@@ -579,8 +588,8 @@ class Bert(PreTrainedBertModel):
         elif reduce_func=='weighted':
             prob = torch.nn.functional.log_softmax(prob.reshape(half, -1), dim=1)
             prob = prob.reshape(half, half, -1)
-            prob = prob * word_weight
-            prob = (prob * mask).sum(dim=2) / mask.sum(dim=1)
+            prob = prob * word_weight #already masked
+            prob = prob.sum(dim=2) / mask.sum(dim=1)
 
         else:
             prob = torch.nn.functional.softmax(prob.reshape(half, -1), dim=1)

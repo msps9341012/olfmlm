@@ -20,6 +20,8 @@ from tqdm import tqdm
 
 
 mode=sys.argv[1]
+unnorm = sys.argv[2].lower() == 'true'
+
 
 model_path = pretrained_path +"_{mode}/mf+mlm/best/model.pt".format(mode = mode)
 
@@ -35,14 +37,15 @@ args=Namespace(alternating=False, always_mlm=True, attention_dropout=0.1, batch_
 '''
 Manually change the arguments to support our case.
 '''
-args.pretrained_bert=True
-args.modes='mlm,mf'
-args.model_type='mf+mlm'
+args.pretrained_bert = True
+args.modes = 'mlm,mf'
+args.model_type = 'mf+mlm'
 #although extra_token and agg_function do not matter in forward function, we only care about the facets' outputs
-args.extra_token='vocab'
-args.agg_function='max'
-args.same_weight=False
-
+args.extra_token = 'token'
+args.agg_function = 'logsum'
+args.same_weight = False
+args.unnorm_facet = False
+args.unnorm_token = False
 '''
 Loading dataset part is also the same.
 '''
@@ -55,7 +58,7 @@ args.data_size = tokenizer.num_tokens
 print('load weight')
 model = BertModel(tokenizer, args)
 model_sd = torch.load(model_path, map_location='cpu')
-model.load_state_dict(model_sd['sd'],strict=True)
+model.load_state_dict(model_sd['sd'],strict=False)
 model.eval()
 
 def truncate_sequence(tokens):
@@ -82,13 +85,13 @@ with tqdm(total=159973) as pbar:  #the total number of validation sentences
             Do the forward function.
             And the only store the facets' outputs
             '''
-            token=tokenizer.EncodeAsIds(sent).tokenization
+            token = tokenizer.EncodeAsIds(sent).tokenization
             truncate_sequence(token)
-            token=[tokenizer.get_command('ENC').Id] + [tokenizer.get_command('s_1').Id] +[tokenizer.get_command('s_2').Id] + [tokenizer.get_command('s_3').Id] + token
-            sent_encode=model.model.bert(torch.tensor([token]),output_all_encoded_layers=False)[0]
+            token = [tokenizer.get_command('ENC').Id] + [tokenizer.get_command('s_1').Id] +[tokenizer.get_command('s_2').Id] + [tokenizer.get_command('s_3').Id] + token
+            sent_encode = model.model.bert(torch.tensor([token]), output_all_encoded_layers=False)[0]
             for i in range(1,4):
-                tmp=model.model.sent['mf']['v_'+str(i)](sent_encode[:,i])
-                view=model.model.sent['mf']['s_'+str(i)](tmp)
+                tmp = model.model.sent['mf']['v_'+str(i)](sent_encode[:, i])
+                view = model.model.sent['mf']['s_'+str(i)](tmp, not_norm=unnorm)
                 v_dict[i].append(view.cpu().detach().numpy()[0])
 
             pbar.update(1)

@@ -70,6 +70,10 @@ def add_model_config_args(parser):
     group.add_argument('--extra-token', type=str, default="cls")
     group.add_argument('--same-weight', action='store_true', help='initialize same weights for pooler and transform head')
 
+    group.add_argument('--unnorm-facet', action='store_true', help='remove layernorm on facet side')
+
+    group.add_argument('--unnorm-token', action='store_true', help='remove layernorm on token side')
+
     return parser
 
 def add_training_args(parser):
@@ -304,7 +308,7 @@ def get_args():
     
     if 'mf' in args.modes:
         global pretrained_path
-        pretrained_path=pretrained_path+'_'+args.agg_function+'_'+args.extra_token
+        pretrained_path=pretrained_path+'_'+args.agg_function+'_'+args.extra_token+'_unnorm_facet_sum'
         if args.dot:
             pretrained_path=pretrained_path+'_'+'dot'
     
