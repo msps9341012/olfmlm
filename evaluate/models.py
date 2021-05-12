@@ -257,8 +257,8 @@ def build_model(args, vocab, pretrained_embs, tasks):
     # Build model and classifiers
     model = MultiTaskModel(args, sent_encoder, vocab)
     
-    
-    build_task_modules(args, tasks, model, d_task_input*3, d_emb, embedder, vocab)
+    #change concat or not here
+    build_task_modules(args, tasks, model, d_task_input, d_emb, embedder, vocab)
     model = model.cuda() if args.cuda >= 0 else model
     log.info("Model specification:")
     log.info(model)

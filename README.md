@@ -68,8 +68,17 @@ pip install -r requirements.txt
   
   Make sure to **move** those ```.ipynb``` files outside the ```olfmlm``` fold to prevent path from conflicts.
     
+-- Evaluation on Glue task
+  - Get glue data in ```/iesl/canvas/rueiyaosun/glue_data```
+    - change the ```data path``` in ```paths.py``` to make them linked
+  - Run convert_state_dict.py to your saved checkedpoint to get converted state
+    - ```python convert_state_dict.py pretrained_berts_max_token/mf+mlm/best/model.pt```
+  - Use sbatch to excute submit.sh to finetune Bert model in three runs, the required arg is the suffix of your methd (the words after "pretrained_berts_")
+    - ```sbatch submit.sh max_token```
+    - Remember to change the workspace path in the sh file.
+  - After three runs are done, run ```extract_result.sh max_token``` to show the score for each task.
+    - Also need to change the workspace path in the sh file.
 
-    
 
 You can also create an account of ```comet_ml``` and change your api-key in the main function of ```pretrain_bert.py```. It is a free and powerful visualization tool.
 

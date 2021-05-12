@@ -149,13 +149,16 @@ class Bert(PreTrainedBertModel):
     ```
     """
 
-    def __init__(self, config, modes=["mlm"], extra_token='cls', agg_function='max',unnorm_facet=False,unnorm_token=False):
+    def __init__(self, config, modes=["mlm"], extra_token='cls', agg_function='max',
+                 unnorm_facet=False,unnorm_token=False, facet2facet=False, use_dropout=False):
         super(Bert, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertLMTokenHead(config, self.bert.embeddings.word_embeddings.weight)
 
         self.unnorm_facet = unnorm_facet
         self.unnorm_token = unnorm_token
+        self.facet2facet=facet2facet
+        self.use_dropout = use_dropout
         
         self.sent = torch.nn.ModuleDict()
         self.tok = torch.nn.ModuleDict()
@@ -251,7 +254,7 @@ class Bert(PreTrainedBertModel):
                 '''
                 Get facet by index and pass through pooler layer and transform layer
                 '''
-                pooled_facet=self.sent['mf']['v_'+str(i)](sequence_output[:,i])
+                pooled_facet = self.sent['mf']['v_'+str(i)](sequence_output[:,i])
                 send_emb, recv_emb = pooled_facet[:half], pooled_facet[half:]
                 send_emb, recv_emb = self.sent['mf']['s_'+str(i)](send_emb, not_norm=self.unnorm_facet), self.sent['mf']['s_'+str(i)](recv_emb, not_norm=self.unnorm_facet)
                 send_emb_list.append(send_emb)
@@ -272,11 +275,13 @@ class Bert(PreTrainedBertModel):
             '''
             Code related to dropout
             '''
-            # if np.random.uniform()<=0.05:
-            #      choice = np.random.randint(3, size=1).item()
-            #      send_emb_tensor = send_emb_tensor[choice].unsqueeze(dim=0)
-            #      recv_emb_tensor = recv_emb_tensor[choice].unsqueeze(dim=0)
-
+            drop_out_flag = False
+            if self.use_dropout:
+                if np.random.uniform()<=0.05:
+                    choice = np.random.randint(3, size=1).item()
+                    send_emb_tensor = send_emb_tensor[choice].unsqueeze(dim=0)
+                    recv_emb_tensor = recv_emb_tensor[choice].unsqueeze(dim=0)
+                    drop_out_flag = True
             #get the frequency weight by token index
             token_index = torch.cat(input_ids, dim=0)
             freq_w = torch.gather(self.prob_w, 1, index=token_index)
@@ -301,9 +306,9 @@ class Bert(PreTrainedBertModel):
 
                 freq_w = freq_w[:, 4:]
                 score_left = self.masked_softmax(score_left,  att_mask[half:, :],
-                                                 reduce_func='sum', word_weight=freq_w[half:])
+                                                 reduce_func='weighted', word_weight=freq_w[half:])
                 score_right = self.masked_softmax(score_right, att_mask[:half, :],
-                                                  reduce_func='sum', word_weight=freq_w[:half])
+                                                  reduce_func='weighted', word_weight=freq_w[:half])
 
 
 
@@ -380,9 +385,13 @@ class Bert(PreTrainedBertModel):
                 score_left = self.agg_function_map(score_left, self.agg_function, dim=0)
                 score_right = self.agg_function_map(score_right, self.agg_function, dim=0)
 
+            else:
+                score_left=0
+                score_right=0
 
 
-            elif self.extra_token=='all':
+
+            if self.facet2facet:
                 '''
                 The primitive settings, have not maintained for a while.
                 Can skip it.
@@ -396,16 +405,20 @@ class Bert(PreTrainedBertModel):
                 #
                 # self.softmax_weight=torch.stack(view_all).transpose(0,1)
                 #
-                for i in range(3):
-                    score_all.append(self.cross_cos_sim(recv_emb_tensor,send_emb_tensor[i]))
+                if drop_out_flag:
+                    score_all = self.cosine_similarity(send_emb_tensor[0], recv_emb_tensor[0])
 
-                score_left = self.agg_function_map(torch.stack(score_all), self.agg_function, dim=(0,1))
-                score_right = None
+                else:
+                    score_all = []
+                    for i in range(3):
+                        score_all.append(self.cross_cos_sim(recv_emb_tensor,send_emb_tensor[i]))
 
+                    score_all = self.agg_function_map(torch.stack(score_all), self.agg_function, dim=(0,1))
+
+                scores["mf"] = [score_left, score_right, score_all]
             else:
-                pass
+                scores["mf"] = [score_left, score_right, None]
 
-            scores["mf"] = [score_left, score_right]
 
             #scores["mf"]=torch.stack(view_all)
             #for i in range(3):
@@ -576,8 +589,9 @@ class Bert(PreTrainedBertModel):
 
         mask = mask[:, 4:]
         word_weight = word_weight * mask
+
         #normalize
-        word_weight = word_weight / word_weight.sum(dim=1, keepdim=True)
+        #word_weight = word_weight / word_weight.sum(dim=1, keepdim=True)
         half = prob.shape[0]
         prob = prob * mask.float()
         if reduce_func == 'log':

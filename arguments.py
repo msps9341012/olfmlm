@@ -73,6 +73,8 @@ def add_model_config_args(parser):
     group.add_argument('--unnorm-facet', action='store_true', help='remove layernorm on facet side')
 
     group.add_argument('--unnorm-token', action='store_true', help='remove layernorm on token side')
+    group.add_argument('--facet2facet', action='store_true', help='use facet to facet loss')
+    group.add_argument('--use-dropout', action='store_true', help='force to have only one facet')
 
     return parser
 
@@ -308,7 +310,7 @@ def get_args():
     
     if 'mf' in args.modes:
         global pretrained_path
-        pretrained_path=pretrained_path+'_'+args.agg_function+'_'+args.extra_token+'_unnorm_facet_sum'
+        pretrained_path=pretrained_path+'_'+args.agg_function+'_'+args.extra_token
         if args.dot:
             pretrained_path=pretrained_path+'_'+'dot'
     

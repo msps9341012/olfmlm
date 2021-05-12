@@ -248,7 +248,8 @@ def forward_step(data, model, criterion, modes, args):
             '''
             loss function related to mf task
             '''
-            score_left, score_right = score
+
+            score_left, score_right, score_all = score
             if args.agg_function in ['max','logsum','concat']:
                 if args.extra_token=='token':
                     #loss_left = score_left
@@ -266,14 +267,13 @@ def forward_step(data, model, criterion, modes, args):
                     loss_left = criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                     loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                 else:
-                    loss_left = criterion_cls(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
-
-                    loss_right = criterion_cls(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                    loss_left = 0
+                    loss_right = 0
 
                 losses[mode] = (loss_left + loss_right)/2
 
 
-            if args.agg_function in ['softmax','w_softmax']:
+            elif args.agg_function in ['softmax','w_softmax']:
                 score_left =torch.log(score_left)
                 loss_left = criterion_nll(score_left.contiguous().float(), aux_labels[mode].view(-1).contiguous()).mean()
 
@@ -281,8 +281,14 @@ def forward_step(data, model, criterion, modes, args):
                 loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                 losses[mode] = (loss_left + loss_right) / 2
 
-            if args.agg_function =='hybrid':
+            elif args.agg_function =='hybrid':
                 pass
+
+
+            if args.facet2facet:
+                loss_facet = criterion_cls(score_all.contiguous().float(),
+                                           aux_labels[mode].view(-1).contiguous()).mean()
+                losses[mode] += loss_facet
 
             #print(losses[mode])
         else:
@@ -518,7 +524,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 #             print(model.model.sent.mf.v_3.dense.weight)
 
 
-            check_vocab(model, tz)
+            #check_vocab(model, tz)
 
             log_tokens = 0
             learning_rate = optimizer.param_groups[0]['lr']
