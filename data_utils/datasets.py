@@ -35,8 +35,8 @@ import numpy as np
 import os
 
 import nltk
-#nltk.download('punkt',download_dir='/iesl/canvas/rueiyaosun/')
-nltk.download('punkt')
+nltk.download('punkt',download_dir='/iesl/canvas/rueiyaosun/')
+#nltk.download('punkt')
 from nltk import tokenize
 
 from olfmlm.data_utils.lazy_loader import lazy_array_loader, exists_lazy, make_lazy
@@ -527,13 +527,45 @@ class bert_dataset(data.Dataset):
         if "so" in self.modes: # Sentence Re-ordering Data
             self.split_percent = 1.0
             self.num_sent_per_seq = 2
-        if "rg" in self.modes or "fs" in self.modes or "mf" in self.modes: # Referential Game Data
+        if "rg" in self.modes or "fs" in self.modes: # Referential Game Data
             self.num_seq_returned = 2
+        if "mf" in self.modes:
+            self.num_seq_returned = 3
         if "sc" in self.modes or "tc" in self.modes: # Sequence Consistency
             self.corruption_rate = 0.50
         if "tgs" in self.modes:
             self.trigram_shuffle_rate = 0.05
 
+    def test_example(self, idx):
+        # get rng state corresponding to index (allows deterministic random pair)
+        if idx >= self.ds_len:
+            raise StopIteration
+        rng = random.Random(idx)
+        self.idx = idx
+        # get sentence pair and label
+        sentence_labels = None
+        tokens, token_labels = [], {}
+
+        while (sentence_labels is None) or any([len(x) < 1 for x in tokens]):
+            tokens, sentence_labels, token_labels, corrupted_ids = self.create_random_sentencepair(rng)
+
+        # join sentence pair, mask, and pad
+        tokens, token_types, token_labels, mask, tgs_mask, mask_labels, pad_mask, num_tokens = \
+            self.create_masked_lm_predictions(tokens, token_labels, self.mask_lm_prob, self.max_preds_per_seq,
+                                              self.vocab_words, rng, do_not_mask_tokens=corrupted_ids)
+
+        aux_labels = {k: np.array(list(map(int, v))) if not isinstance(v, np.ndarray) else v
+                      for k, v in sentence_labels.items() if k in self.modes}
+        aux_labels.update({k: np.array(v) for k, v in token_labels.items() if k in self.modes})
+        sample = {'aux_labels': aux_labels, 'n': len(tokens), 'num_tokens': num_tokens}
+
+        for i in range(len(tokens)):
+            sample.update({'text_' + str(i): np.array(tokens[i]), 'types_' + str(i): np.array(token_types[i]),
+                           'task_' + str(i): np.full_like(tokens[i], self.task_id),
+                           'mask_' + str(i): np.array(mask[i]), 'mask_labels_' + str(i): np.array(mask_labels[i]),
+                           'tgs_mask_' + str(i): np.array(tgs_mask[i]), 'pad_mask_' + str(i): np.array(pad_mask[i])})
+
+        return sample
 
     def __getitem__(self, idx):
         # get rng state corresponding to index (allows deterministic random pair)
@@ -544,7 +576,7 @@ class bert_dataset(data.Dataset):
         # get sentence pair and label
         sentence_labels = None
         tokens, token_labels = [], {}
-        
+
         while (sentence_labels is None) or any([len(x) < 1 for x in tokens]):
             tokens, sentence_labels, token_labels, corrupted_ids = self.create_random_sentencepair(rng)
 
@@ -588,8 +620,10 @@ class bert_dataset(data.Dataset):
 
         # Contiguous multiple sequences
         elif split <= self.split_percent:
-            if "rg" in self.modes or "fs" in self.modes or "mf" in self.modes:
-                target_seq_len = self.max_seq_len * 2 
+            if "rg" in self.modes or "fs" in self.modes:
+                target_seq_len = self.max_seq_len * 2
+            elif "mf" in self.modes:
+                target_seq_len = self.max_seq_len * 3
             else:
                 target_seq_len=self.max_seq_len
                    
@@ -848,6 +882,7 @@ class bert_dataset(data.Dataset):
         end_idx = rng.randint(0, len(doc) - 1)
         start_idx = end_idx - 1
         total_length = 0
+
         while total_length < target_seq_length or len(sentences) < num_sent_required:
             # Add next sentence to sequence
             if end_idx < len(doc):
@@ -872,9 +907,8 @@ class bert_dataset(data.Dataset):
             if len(sentence) == 0:
                 print(doc)
             total_length += len(sentence)
-        
-        assert len(sentences) >= num_sent_required
 
+        assert len(sentences) >= num_sent_required
         # Get split indices (i.e. subdivide the set of sentences)
         num_sent = len(sentences)
         split_idxs = [0, num_sent]
@@ -967,7 +1001,7 @@ class bert_dataset(data.Dataset):
         """
         Mask sequence pair for BERT training. Includes necessary concatenation, padding, and trigram shuffling.
         """
-        token_types = [[self.tokenizer.get_type('str' + str(i % 2)).Id] * len(tokens[i]) for i in range(len(tokens))]
+        token_types = [[self.tokenizer.get_type('str' + str(i % 3)).Id] * len(tokens[i]) for i in range(len(tokens))]
         # Concatenate sequences if requested
         if len(tokens) == 4:
             half = int(len(tokens) / 2)

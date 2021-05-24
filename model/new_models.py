@@ -205,7 +205,8 @@ class Bert(PreTrainedBertModel):
             #self.sent["mf"]['weighted'] = nn.Linear(config.hidden_size*2, 1)
             self.softmax_weight=None
             self.prob_w = torch.tensor(get_freq_weight(),dtype=torch.float32).cuda()
-            self.prob_w = torch.stack([self.prob_w]*32)
+            #self.prob_w = torch.stack([self.prob_w] * 32)
+
 
         if "fs" in modes:
             self.sent["fs"] = BertHeadTransform(config)
@@ -223,7 +224,6 @@ class Bert(PreTrainedBertModel):
         sequence_output, pooled_output = self.bert(torch.cat(input_ids, dim=0), token_type_ids, task_ids, att_mask,
                                                    output_all_encoded_layers=False,
                                                    checkpoint_activations=checkpoint_activations)
-         
         scores = {}
 
         if "mlm" in modes:
@@ -238,10 +238,14 @@ class Bert(PreTrainedBertModel):
             scores["so"] = self.sent["so"](pooled_output)
             
         if "mf" in modes:
-            
+            '''
+            Using the name of half is kine of misunderstanding, 
+            but it indicates the number of sentences in the first part (sent A)
+            '''
             half = len(input_ids[0])
             send_emb_list=[]
             recv_emb_list=[]
+            hard_negative_list = []
             #self.embedding_var_before_pool=self.var_of_embedding(sequence_output[:,1:4,:])
             pool_output_list=[]
             
@@ -255,18 +259,25 @@ class Bert(PreTrainedBertModel):
                 Get facet by index and pass through pooler layer and transform layer
                 '''
                 pooled_facet = self.sent['mf']['v_'+str(i)](sequence_output[:,i])
-                send_emb, recv_emb = pooled_facet[:half], pooled_facet[half:]
-                send_emb, recv_emb = self.sent['mf']['s_'+str(i)](send_emb, not_norm=self.unnorm_facet), self.sent['mf']['s_'+str(i)](recv_emb, not_norm=self.unnorm_facet)
+
+                send_emb = self.sent['mf']['s_' + str(i)](pooled_facet[:half], not_norm=self.unnorm_facet) #sent A
+                recv_emb = self.sent['mf']['s_' + str(i)](pooled_facet[half:half * 2], not_norm=self.unnorm_facet) #sent B
+                neg_emb = self.sent['mf']['s_' + str(i)](pooled_facet[half*2:], not_norm=self.unnorm_facet) #sent C
+
                 send_emb_list.append(send_emb)
                 recv_emb_list.append(recv_emb)
+                hard_negative_list.append(neg_emb)
              
             #self.embedding_var_after_pool=self.var_of_embedding(torch.stack(pool_output_list).transpose(0,1))
             
             
             send_emb_tensor=torch.stack(send_emb_list)
             recv_emb_tensor=torch.stack(recv_emb_list)
+            neg_emb_tensor = torch.stack(hard_negative_list)
+
+
             
-            send_recv_list=[send_emb_tensor, recv_emb_tensor]
+            send_recv_list=[send_emb_tensor, recv_emb_tensor, neg_emb_tensor]
             
             #compute the variance between the facets
             self.emedding_var_after_trans=self.var_of_embedding(torch.cat(send_recv_list,dim=1).transpose(0,1),dim=1)
@@ -281,61 +292,63 @@ class Bert(PreTrainedBertModel):
                     choice = np.random.randint(3, size=1).item()
                     send_emb_tensor = send_emb_tensor[choice].unsqueeze(dim=0)
                     recv_emb_tensor = recv_emb_tensor[choice].unsqueeze(dim=0)
+                    neg_emb_tensor = neg_emb_tensor[choice].unsqueeze(dim=0)
                     drop_out_flag = True
             #get the frequency weight by token index
             token_index = torch.cat(input_ids, dim=0)
-            freq_w = torch.gather(self.prob_w, 1, index=token_index)
+
+            prob_w_tensor = torch.stack([self.prob_w] * (half * 3))
+            freq_w = torch.gather(prob_w_tensor, 1, index=token_index)
 
 
             '''
             compute similarity score matrix corresponding to different choices
             '''
-
+            freq_w = freq_w[:, 4:]
             if self.extra_token=='token':
                 token_hidden = sequence_output[:, 4:, :]
-                token_hidden_proj = self.lm.transform(token_hidden,not_norm=self.unnorm_token)
+                token_hidden_proj = self.lm.transform(token_hidden, not_norm=self.unnorm_token)
 
-                score_left = self.get_probs_hidden(send_emb_tensor, token_hidden_proj[half:])
-                score_right = self.get_probs_hidden(recv_emb_tensor, token_hidden_proj[:half])
+                #sent A -> sent B & sent C
 
-                score_left = self.agg_function_map(torch.stack(score_left), self.agg_function, dim=0)
-                score_right = self.agg_function_map(torch.stack(score_right), self.agg_function, dim=0)
-
-                # score_left = self.word2vec_loss(score_left, att_mask[half:, :], freq_w[half:])
-                # score_right  = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
-
-                freq_w = freq_w[:, 4:]
-                score_left = self.masked_softmax(score_left,  att_mask[half:, :],
-                                                 reduce_func='weighted', word_weight=freq_w[half:])
-                score_right = self.masked_softmax(score_right, att_mask[:half, :],
-                                                  reduce_func='weighted', word_weight=freq_w[:half])
-
+                score_left = self.get_token_loss_by_parts(send_emb_tensor,
+                                                          token_hidden_proj[half:],
+                                                          att_mask[half:],
+                                                          freq_w[half:])
+                # sent C -> sent B & sent A
+                score_right = self.get_token_loss_by_parts(neg_emb_tensor,
+                                                          torch.cat([token_hidden_proj[half:half*2],token_hidden_proj[:half]],dim=0),
+                                                          torch.cat([att_mask[half:half*2],att_mask[:half]],dim=0),
+                                                          torch.cat([freq_w[half:half*2],freq_w[:half]],dim=0))
 
 
             elif self.extra_token=='vocab':
+                '''
+                just change the token_hidden_proj to token_embeds
+                Will combine above to make it more neat later
+                '''
                 #bert vocab embedding by token index
                 token_embeds = self.bert.embeddings.word_embeddings(token_index[:, 4:])
 
-                score_left = self.get_probs_hidden(send_emb_tensor, token_embeds[half:])
-                score_right = self.get_probs_hidden(recv_emb_tensor, token_embeds[:half])
 
-                score_left = self.agg_function_map(torch.stack(score_left), self.agg_function, dim=0)
-                score_right = self.agg_function_map(torch.stack(score_right), self.agg_function, dim=0)
+                #sent A -> sent B & sent C
+                score_left = self.get_token_loss_by_parts(send_emb_tensor,
+                                                          token_embeds[half:],
+                                                          att_mask[half:],
+                                                          freq_w[half:])
 
+
+                #sent C <-> sent B & sent A
+                score_right = self.get_token_loss_by_parts(neg_emb_tensor,
+                                                          torch.cat([token_embeds[half:half*2],token_embeds[:half]],dim=0),
+                                                          torch.cat([att_mask[half:half*2],att_mask[:half]],dim=0),
+                                                          torch.cat([freq_w[half:half*2],freq_w[:half]],dim=0))
                 '''
                 if using word2vec loss, then comment out the below masked_softmax lines
-                
+
                 score_left = self.word2vec_loss(score_left, att_mask[half:, :], freq_w[half:])
                 score_right = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
                 '''
-
-                freq_w= freq_w[:,4:]
-                score_left = self.masked_softmax(score_left,  att_mask[half:, :],
-                                                 reduce_func='weighted', word_weight=freq_w[half:])
-                score_right = self.masked_softmax(score_right, att_mask[:half, :],
-                                                  reduce_func='weighted', word_weight=freq_w[:half])
-
-
 
                 # left_index = input_ids[0]
                 # right_index = input_ids[1]
@@ -406,14 +419,20 @@ class Bert(PreTrainedBertModel):
                 # self.softmax_weight=torch.stack(view_all).transpose(0,1)
                 #
                 if drop_out_flag:
-                    score_all = self.cosine_similarity(send_emb_tensor[0], recv_emb_tensor[0])
+                    score_all_1 = self.cosine_similarity(send_emb_tensor[0],
+                                                         torch.cat([recv_emb_tensor,neg_emb_tensor],dim=1)[0])
+                    score_all_2 = self.cosine_similarity(recv_emb_tensor[0],
+                                                         torch.cat([neg_emb_tensor,send_emb_tensor],dim=1)[0])
 
                 else:
-                    score_all = []
-                    for i in range(3):
-                        score_all.append(self.cross_cos_sim(recv_emb_tensor,send_emb_tensor[i]))
+                    # A -> B & C
+                    score_all_1= self.get_f2f_loss(send_emb_tensor, torch.cat([recv_emb_tensor,neg_emb_tensor],dim=1))
+                    # C -> B & A
+                    score_all_2= self.get_f2f_loss(neg_emb_tensor, torch.cat([recv_emb_tensor,send_emb_tensor],dim=1))
 
-                    score_all = self.agg_function_map(torch.stack(score_all), self.agg_function, dim=(0,1))
+                score_all = [score_all_1,score_all_2]
+
+
 
                 scores["mf"] = [score_left, score_right, score_all]
             else:
@@ -580,35 +599,62 @@ class Bert(PreTrainedBertModel):
 
         return torch.stack(loss_list).mean()
 
+
+    def get_token_loss_by_parts(self, left,token_hidden_proj, att_mask, freq_w, reduce_func='weighted'):
+
+
+        score_left = self.get_probs_hidden(left, token_hidden_proj)
+
+        score_left = self.agg_function_map(torch.stack(score_left), self.agg_function, dim=0)
+
+        # score_left = self.word2vec_loss(score_left, att_mask[half:, :], freq_w[half:])
+        # score_right  = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
+
+        score_left = self.masked_softmax(score_left, att_mask,
+                                         reduce_func='weighted', word_weight=freq_w)
+
+        return score_left
+
+
+
+    def get_f2f_loss(self,send,recv):
+        score_all = []
+        for i in range(3):
+            score_all.append(self.cross_cos_sim(recv, send[i]))
+
+        score_all = self.agg_function_map(torch.stack(score_all), self.agg_function, dim=(0, 1))
+        return score_all
+
+
+
     def masked_softmax(self, prob, mask, reduce_func=None, word_weight=None):
         '''
         mask out padding
         '''
 
 
-
         mask = mask[:, 4:]
         word_weight = word_weight * mask
-
+        seq_len = mask.shape[-1]
         #normalize
         #word_weight = word_weight / word_weight.sum(dim=1, keepdim=True)
         half = prob.shape[0]
         prob = prob * mask.float()
         if reduce_func == 'log':
             prob = torch.nn.functional.log_softmax(prob.reshape(half, -1), dim=1)
-            prob = prob.reshape(half, half, -1)
+            prob = prob.reshape(half, -1, seq_len)
             prob = (prob * mask).sum(dim=2) / mask.sum(dim=1)
 
         elif reduce_func=='weighted':
             prob = torch.nn.functional.log_softmax(prob.reshape(half, -1), dim=1)
-            prob = prob.reshape(half, half, -1)
+            prob = prob.reshape(half, -1, seq_len)
             prob = prob * word_weight #already masked
             prob = prob.sum(dim=2) / mask.sum(dim=1)
 
         else:
             prob = torch.nn.functional.softmax(prob.reshape(half, -1), dim=1)
 
-            prob = prob.reshape(half, half, -1)
+            prob = prob.reshape(half, -1, seq_len)
 
             prob = prob * mask.float()
             # normalize the probability again

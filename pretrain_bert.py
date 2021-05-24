@@ -248,15 +248,17 @@ def forward_step(data, model, criterion, modes, args):
             '''
             loss function related to mf task
             '''
-
+            loss_left = 0
+            loss_right = 0
             score_left, score_right, score_all = score
             if args.agg_function in ['max','logsum','concat']:
-                if args.extra_token=='token':
+                if args.extra_token=='token' :
                     #loss_left = score_left
                     #loss_right = score_right
 
-                    loss_left = criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
-                    loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+
+                    loss_left += criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                    loss_right += criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
 
                 elif args.extra_token =='vocab':
                     '''
@@ -264,11 +266,10 @@ def forward_step(data, model, criterion, modes, args):
                     loss_left=score_left
                     loss_right=score_right
                     '''
-                    loss_left = criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
-                    loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                    loss_left += criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                    loss_right += criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                 else:
-                    loss_left = 0
-                    loss_right = 0
+                    pass
 
                 losses[mode] = (loss_left + loss_right)/2
 
@@ -286,8 +287,9 @@ def forward_step(data, model, criterion, modes, args):
 
 
             if args.facet2facet:
-                loss_facet = criterion_cls(score_all.contiguous().float(),
-                                           aux_labels[mode].view(-1).contiguous()).mean()
+                loss_facet = 0
+                for i in range(len(score_all)):
+                    loss_facet += criterion_cls(score_all[i].contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                 losses[mode] += loss_facet
 
             #print(losses[mode])
@@ -688,6 +690,20 @@ def main():
     data_config = configure_data()
     data_config.set_defaults(data_set_type='BERT', transpose=False)
     (train_data, val_data, test_data), tokenizer = data_config.apply(args)
+
+    #
+    # # Data iterator.
+    # modes = args.modes.split(',')
+    # # Incrementally add tasks after each epoch
+    # if args.incremental:
+    #     modes = modes[:epoch]
+    #
+    # train_data.dataset.set_args(modes)
+    # breakpoint()
+    # train_data.dataset.test_example(0)
+
+
+
     args.data_size = tokenizer.num_tokens
 
 

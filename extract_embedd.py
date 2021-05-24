@@ -41,11 +41,13 @@ args.pretrained_bert = True
 args.modes = 'mlm,mf'
 args.model_type = 'mf+mlm'
 #although extra_token and agg_function do not matter in forward function, we only care about the facets' outputs
-args.extra_token = 'token'
-args.agg_function = 'logsum'
+args.extra_token = 'vocab'
+args.agg_function = 'max'
 args.same_weight = False
 args.unnorm_facet = False
 args.unnorm_token = False
+args.facet2facet = True
+args.use_dropout = False
 '''
 Loading dataset part is also the same.
 '''
