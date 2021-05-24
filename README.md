@@ -68,7 +68,7 @@ pip install -r requirements.txt
   
   Make sure to **move** those ```.ipynb``` files outside the ```olfmlm``` fold to prevent path from conflicts.
     
--- Evaluation on Glue task
+- Evaluation on Glue task
   - Get glue data in ```/iesl/canvas/rueiyaosun/glue_data```
     - change the ```data path``` in ```paths.py``` to make them linked
   - Run convert_state_dict.py to your saved checkedpoint to get converted state
