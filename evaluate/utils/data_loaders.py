@@ -95,6 +95,7 @@ def load_tsv(
     filter_value=None,
     tag_vocab=None,
     tag2idx_dict=None,
+    few_shot_sample=False
 ):
     """
     Load a tsv.
@@ -133,6 +134,9 @@ def load_tsv(
         keep_default_na=False,
         encoding="utf-8",
     )
+    if few_shot_sample:
+        rows = rows.sample(n=100)
+
     if filter_idx:
         rows = rows[rows[filter_idx] == filter_value]
     # Filter for sentence1s that are of length 0

@@ -515,13 +515,12 @@ def main(cl_arguments):
     cl_args = handle_arguments(cl_arguments)
     args = config.params_from_file(cl_args.config_file, cl_args.overrides)
     
-    
+
     add_required_args(args, cl_args)
     # Check for deprecated arg names
     check_arg_name(args)
     args, seed = initial_setup(args, cl_args)
-    
-       
+
     # Load tasks
     log.info("Loading tasks...")
     start_time = time.time()

@@ -8,7 +8,7 @@ from sklearn.manifold import MDS
 
 class Neighbor_finder:
     def __init__(self, view):
-        self.view=view
+        self.view = view
         self.index = faiss.index_factory(768, "Flat", faiss.METRIC_INNER_PRODUCT)
         faiss.normalize_L2(self.view)
         self.index.add(view)
@@ -21,7 +21,7 @@ class Neighbor_finder:
         return D, I
     
     def get_neighor_by_vector(self, q, n):
-        q = np.expand_dims(q,axis=0)
+        q = np.expand_dims(q, axis=0)
         D, I = self.index.search(q, n)
         #self.print_text(I, skip)
         return D, I

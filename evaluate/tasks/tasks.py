@@ -430,6 +430,7 @@ class SSTTask(SingleClassificationTask):
             s2_idx=None,
             label_idx=1,
             skip_rows=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -597,6 +598,7 @@ class CoLATask(SingleClassificationTask):
             s1_idx=3,
             s2_idx=None,
             label_idx=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -790,6 +792,7 @@ class QQPTask(PairClassificationTask):
             label_idx=5,
             label_fn=int,
             skip_rows=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -866,6 +869,7 @@ class MultiNLISingleGenreTask(PairClassificationTask):
             skip_rows=1,
             filter_idx=3,
             filter_value=self.genre,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -933,6 +937,7 @@ class MRPCTask(PairClassificationTask):
             s2_idx=4,
             label_idx=0,
             skip_rows=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1007,6 +1012,7 @@ class STSBTask(PairRegressionTask):
             s2_idx=8,
             label_idx=9,
             label_fn=lambda x: float(x) / 5,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1126,6 +1132,7 @@ class MultiNLITask(PairClassificationTask):
             label_idx=11,
             label_fn=targ_map.__getitem__,
             skip_rows=1,
+            few_shot_sample=False
         )
 
         # Warning to anyone who edits this: The reference label is column *15*,
@@ -1627,6 +1634,7 @@ class RTETask(PairClassificationTask):
             s2_idx=2,
             label_idx=3,
             skip_rows=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1721,6 +1729,7 @@ class QNLITask(PairClassificationTask):
             s2_idx=2,
             label_idx=3,
             skip_rows=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1774,6 +1783,7 @@ class WNLITask(PairClassificationTask):
             s2_idx=2,
             label_idx=3,
             skip_rows=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,

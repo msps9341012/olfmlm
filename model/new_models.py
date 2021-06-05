@@ -150,7 +150,8 @@ class Bert(PreTrainedBertModel):
     """
 
     def __init__(self, config, modes=["mlm"], extra_token='cls', agg_function='max',
-                 unnorm_facet=False,unnorm_token=False, facet2facet=False, use_dropout=False):
+                 unnorm_facet=False,unnorm_token=False, facet2facet=False,
+                 use_dropout=False, autoenc_reg_const=0.0):
         super(Bert, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertLMTokenHead(config, self.bert.embeddings.word_embeddings.weight)
@@ -206,6 +207,12 @@ class Bert(PreTrainedBertModel):
             self.softmax_weight=None
             self.prob_w = torch.tensor(get_freq_weight(),dtype=torch.float32).cuda()
             #self.prob_w = torch.stack([self.prob_w] * 32)
+            self.autoenc_reg_const = autoenc_reg_const
+            self.criterion_autoenc = torch.nn.MSELoss(reduction='mean')
+            # self.neg_w1= torch.cat([torch.ones(8*124), torch.ones(8 * 124) * 2]).cuda()
+            # self.neg_w2 = torch.cat([torch.ones(8), torch.ones(8) * 2]).cuda()
+
+
 
 
         if "fs" in modes:
@@ -287,13 +294,15 @@ class Bert(PreTrainedBertModel):
             Code related to dropout
             '''
             drop_out_flag = False
+            choice = [0,1,2]
             if self.use_dropout:
-                if np.random.uniform()<=0.05:
+                if np.random.uniform()<=0.1:
                     choice = np.random.randint(3, size=1).item()
-                    send_emb_tensor = send_emb_tensor[choice].unsqueeze(dim=0)
-                    recv_emb_tensor = recv_emb_tensor[choice].unsqueeze(dim=0)
-                    neg_emb_tensor = neg_emb_tensor[choice].unsqueeze(dim=0)
+                    #send_emb_tensor = send_emb_tensor[choice].unsqueeze(dim=0)
+                    #recv_emb_tensor = recv_emb_tensor[choice].unsqueeze(dim=0)
+                    #neg_emb_tensor = neg_emb_tensor[choice].unsqueeze(dim=0)
                     drop_out_flag = True
+
             #get the frequency weight by token index
             token_index = torch.cat(input_ids, dim=0)
 
@@ -305,7 +314,37 @@ class Bert(PreTrainedBertModel):
             compute similarity score matrix corresponding to different choices
             '''
             freq_w = freq_w[:, 4:]
-            if self.extra_token=='token':
+
+            if self.extra_token=='token+facet':
+
+                token_hidden = sequence_output[:, 4:, :]
+                token_hidden_proj = self.lm.transform(token_hidden, not_norm=self.unnorm_token)
+
+                #sent A -> sent B & sent C
+
+
+                score_left_1 = self.get_token_loss_by_parts(send_emb_tensor[choice],
+                                                          token_hidden_proj[half:],
+                                                          att_mask[half:],
+                                                          freq_w[half:])
+                # sent C -> sent B & sent A
+                score_right_1 = self.get_token_loss_by_parts(neg_emb_tensor[choice],
+                                                          torch.cat([token_hidden_proj[half:half*2],token_hidden_proj[:half]],dim=0),
+                                                          torch.cat([att_mask[half:half*2],att_mask[:half]],dim=0),
+                                                          torch.cat([freq_w[half:half*2],freq_w[:half]],dim=0))
+
+                score_left_2 = self.get_token_loss_by_parts(send_emb_tensor[choice],
+                                                          torch.cat([recv_emb_tensor.transpose(0,1),neg_emb_tensor.transpose(0,1)]),
+                                                          None, None, reduce_func='facet_loss')
+                # sent C -> sent B & sent A
+                score_right_2 = self.get_token_loss_by_parts(neg_emb_tensor[choice],
+                                                          torch.cat([recv_emb_tensor.transpose(0,1),send_emb_tensor.transpose(0,1)]),
+                                                          None, None, reduce_func='facet_loss')
+                score_left =[score_left_1, score_right_1]
+                score_right = [score_left_2, score_right_2]
+
+
+            elif self.extra_token=='token':
                 token_hidden = sequence_output[:, 4:, :]
                 token_hidden_proj = self.lm.transform(token_hidden, not_norm=self.unnorm_token)
 
@@ -320,6 +359,17 @@ class Bert(PreTrainedBertModel):
                                                           torch.cat([token_hidden_proj[half:half*2],token_hidden_proj[:half]],dim=0),
                                                           torch.cat([att_mask[half:half*2],att_mask[:half]],dim=0),
                                                           torch.cat([freq_w[half:half*2],freq_w[:half]],dim=0))
+
+            elif self.extra_token=='facet':
+                # sent A -> sent B & sent C
+
+                score_left = self.get_token_loss_by_parts(send_emb_tensor,
+                                                          torch.cat([recv_emb_tensor.transpose(0,1),neg_emb_tensor.transpose(0,1)]),
+                                                          None, None, reduce_func='facet_loss')
+                # sent C -> sent B & sent A
+                score_right = self.get_token_loss_by_parts(neg_emb_tensor,
+                                                          torch.cat([recv_emb_tensor.transpose(0,1),send_emb_tensor.transpose(0,1)]),
+                                                          None, None, reduce_func='facet_loss')
 
 
             elif self.extra_token=='vocab':
@@ -426,17 +476,37 @@ class Bert(PreTrainedBertModel):
 
                 else:
                     # A -> B & C
-                    score_all_1= self.get_f2f_loss(send_emb_tensor, torch.cat([recv_emb_tensor,neg_emb_tensor],dim=1))
+                    score_all_1= self.get_f2f_loss(send_emb_tensor, torch.cat([recv_emb_tensor,neg_emb_tensor*2],dim=1))
                     # C -> B & A
-                    score_all_2= self.get_f2f_loss(neg_emb_tensor, torch.cat([recv_emb_tensor,send_emb_tensor],dim=1))
+                    score_all_2= self.get_f2f_loss(neg_emb_tensor, torch.cat([recv_emb_tensor,send_emb_tensor*2],dim=1))
 
                 score_all = [score_all_1,score_all_2]
-
-
-
-                scores["mf"] = [score_left, score_right, score_all]
             else:
-                scores["mf"] = [score_left, score_right, None]
+                score_all = None
+
+            if self.autoenc_reg_const > 0:
+                # TODO: temporary to turn off dropout on autoencoder.
+                drop_out_flag = False
+                if drop_out_flag:
+                    facets_avg = sequence_output[:,choice,:]
+                else:
+                    facets_avg = torch.mean(sequence_output[:,1:4,:], dim=1)
+
+                token_embeds = self.bert.embeddings.word_embeddings(token_index[:,4:]).detach().clone()
+                # I have made a change in my version so that it is like this, but I believe on your end
+                # you do not need to slice freq_w here.
+                token_weights = (freq_w * att_mask[:,4:]).unsqueeze(-1)
+                words_weighted_sum = (token_embeds * token_weights).mean(dim=1)
+
+                loss_autoenc = self.autoenc_reg_const * self.criterion_autoenc(facets_avg, words_weighted_sum)
+
+            else:
+                loss_autoenc = torch.tensor(0.).cuda()
+
+
+
+            scores["mf"] = [score_left, score_right, score_all, loss_autoenc]
+
 
 
             #scores["mf"]=torch.stack(view_all)
@@ -536,8 +606,9 @@ class Bert(PreTrainedBertModel):
             return torch.logsumexp(score,dim=dim)
 
         elif method == 'softmax':
-            dim = score.shape[-1]
-            return torch.nn.functional.softmax(score, dim=dim).mean(dim=0)
+            if score.shape[1]!=3:
+                return score
+            return torch.nn.functional.softmax(score, dim=-1).mean(dim=dim)
 
         elif method == 'concat':
             # send, recv = model.model.send_recv_list
@@ -600,18 +671,27 @@ class Bert(PreTrainedBertModel):
         return torch.stack(loss_list).mean()
 
 
+
+
     def get_token_loss_by_parts(self, left,token_hidden_proj, att_mask, freq_w, reduce_func='weighted'):
 
+        if left.shape[0]!=3:
+            left = left.unsqueeze(dim=0)
 
         score_left = self.get_probs_hidden(left, token_hidden_proj)
-
         score_left = self.agg_function_map(torch.stack(score_left), self.agg_function, dim=0)
-
+        breakpoint()
         # score_left = self.word2vec_loss(score_left, att_mask[half:, :], freq_w[half:])
         # score_right  = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
+        if reduce_func=='facet_loss':
+            prob = torch.nn.functional.log_softmax(score_left.reshape(score_left.shape[0], -1), dim=1)
+            prob = prob.reshape(score_left.shape[0], -1, 3)
+            score_left = prob.sum(dim=2)
 
-        score_left = self.masked_softmax(score_left, att_mask,
-                                         reduce_func='weighted', word_weight=freq_w)
+        else:
+            score_left = self.masked_softmax(score_left, att_mask,
+                                             reduce_func=reduce_func, word_weight=freq_w)
+
 
         return score_left
 
@@ -631,23 +711,34 @@ class Bert(PreTrainedBertModel):
         '''
         mask out padding
         '''
-
-
         mask = mask[:, 4:]
         word_weight = word_weight * mask
         seq_len = mask.shape[-1]
         #normalize
         #word_weight = word_weight / word_weight.sum(dim=1, keepdim=True)
-        half = prob.shape[0]
         prob = prob * mask.float()
+        if len(prob.shape)==4:
+            half = prob.shape[1]
+        else:
+            half = prob.shape[0]
         if reduce_func == 'log':
             prob = torch.nn.functional.log_softmax(prob.reshape(half, -1), dim=1)
             prob = prob.reshape(half, -1, seq_len)
             prob = (prob * mask).sum(dim=2) / mask.sum(dim=1)
 
         elif reduce_func=='weighted':
-            prob = torch.nn.functional.log_softmax(prob.reshape(half, -1), dim=1)
+            #prob = torch.cat([prob, prob[:, 8:, :]], dim=1)
+            prob = prob.reshape(half, -1)
+            if self.agg_function=='softmax':
+                #Todo: fix to support neg_w
+                prob = torch.nn.functional.log_softmax(prob.reshape(3,half, -1), dim=1).mean(dim=0)
+            else:
+                prob = torch.nn.functional.log_softmax(prob, dim=1)
             prob = prob.reshape(half, -1, seq_len)
+
+            #word_weight = torch.cat([word_weight, word_weight[8:, :]], dim=0)
+            #mask = torch.cat([mask, mask[8:, :]], dim=0)
+
             prob = prob * word_weight #already masked
             prob = prob.sum(dim=2) / mask.sum(dim=1)
 
@@ -667,7 +758,7 @@ class Bert(PreTrainedBertModel):
 
 
     def get_probs_hidden(self, facet_set, hidden_output):
-        half = hidden_output.shape[0]
+        #half = hidden_output.shape[0]
         #token_hidden = hidden_output
         token_hidden = hidden_output.detach().clone()
         score=[]

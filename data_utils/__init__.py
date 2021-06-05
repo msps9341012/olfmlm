@@ -107,6 +107,7 @@ def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=N
         ds_type = kwargs['ds_type']
     ds.SetTokenizer(tokenizer)
     # Split dataset into train/val/test (and wrap bert dataset)
+
     if should_split(split):
         ds = split_ds(ds, split, shuffle=True)
         if ds_type.lower() == 'bert':

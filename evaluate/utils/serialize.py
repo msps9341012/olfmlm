@@ -75,7 +75,7 @@ def read_records(filename, repeatable=False, fraction=None):
     def _iter_fn():
         with open(filename, "rb") as fd:
             for line in fd:
-                blob = base64.b64decode(line)
+                blob = (line)
                 if fraction and fraction < 1:
                     hash_float = bytes_to_float(blob)
                     if hash_float > fraction:

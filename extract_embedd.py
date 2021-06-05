@@ -41,13 +41,14 @@ args.pretrained_bert = True
 args.modes = 'mlm,mf'
 args.model_type = 'mf+mlm'
 #although extra_token and agg_function do not matter in forward function, we only care about the facets' outputs
-args.extra_token = 'vocab'
+args.extra_token = 'facet'
 args.agg_function = 'max'
 args.same_weight = False
 args.unnorm_facet = False
 args.unnorm_token = False
 args.facet2facet = True
 args.use_dropout = False
+args.autoenc_reg_const = 0.0
 '''
 Loading dataset part is also the same.
 '''
@@ -55,7 +56,6 @@ data_config = configure_data()
 data_config.set_defaults(data_set_type='BERT', transpose=True)
 (train_data, val_data, test_data), tokenizer = data_config.apply(args)
 args.data_size = tokenizer.num_tokens
-
 
 print('load weight')
 model = BertModel(tokenizer, args)

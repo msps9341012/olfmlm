@@ -250,9 +250,9 @@ def forward_step(data, model, criterion, modes, args):
             '''
             loss_left = 0
             loss_right = 0
-            score_left, score_right, score_all = score
-            if args.agg_function in ['max','logsum','concat']:
-                if args.extra_token=='token' :
+            score_left, score_right, score_all, loss_autoenc = score
+            if args.agg_function in ['max','logsum','concat','softmax']:
+                if args.extra_token in ['token','facet']:
                     #loss_left = score_left
                     #loss_right = score_right
 
@@ -268,29 +268,42 @@ def forward_step(data, model, criterion, modes, args):
                     '''
                     loss_left += criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                     loss_right += criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                elif args.extra_token=='token+facet':
+
+                    #token loss
+                    loss_left += criterion_nll(score_left[0].contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                    loss_left += criterion_nll(score_left[1].contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+
+                    #facet loss
+                    loss_right += criterion_nll(score_right[0].contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                    loss_right += criterion_nll(score_right[1].contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                    loss_weight = torch.stack(att_mask).sum(dim=2).float().mean()
+                    loss_right *= (loss_weight/3)
+
                 else:
                     pass
 
                 losses[mode] = (loss_left + loss_right)/2
 
-
-            elif args.agg_function in ['softmax','w_softmax']:
-                score_left =torch.log(score_left)
-                loss_left = criterion_nll(score_left.contiguous().float(), aux_labels[mode].view(-1).contiguous()).mean()
-
-                score_right = torch.log(score_right)
-                loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
-                losses[mode] = (loss_left + loss_right) / 2
-
-            elif args.agg_function =='hybrid':
+            else:
                 pass
 
 
             if args.facet2facet:
                 loss_facet = 0
                 for i in range(len(score_all)):
-                    loss_facet += criterion_cls(score_all[i].contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
+                    if args.agg_function=='softmax':
+                        # Todo: fix to support neg_w
+                        loss_facet += criterion_nll(torch.log(score_all[i].contiguous().float()),
+                                      aux_labels[mode].view(-1).contiguous()).mean()
+                    else:
+                        score_tmp = score_all[i]#*model.model.neg_w2
+                        score_tmp = torch.cat([score_tmp, score_tmp[:,8:]],dim=1)
+                        loss_facet += criterion_cls(score_tmp.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                 losses[mode] += loss_facet
+
+            if args.autoenc_reg_const>0:
+                losses[mode] += loss_autoenc
 
             #print(losses[mode])
         else:
@@ -670,12 +683,12 @@ def main():
     args = get_args()
 
     experiment=None
-
-    experiment = Experiment(api_key='Bq7FWdV8LPx8HkWh67e5UmUPm',
-                             project_name='testing',
-                             auto_param_logging=False, auto_metric_logging=False,
-                             disabled=(not args.track_results))
-    experiment.log_parameters(vars(args))
+    #
+    # experiment = Experiment(api_key='Bq7FWdV8LPx8HkWh67e5UmUPm',
+    #                          project_name='testing',
+    #                          auto_param_logging=False, auto_metric_logging=False,
+    #                          disabled=(not args.track_results))
+    # experiment.log_parameters(vars(args))
 
 
     metrics = {}
