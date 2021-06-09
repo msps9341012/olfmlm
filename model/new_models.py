@@ -4,11 +4,63 @@ from torch.nn import CrossEntropyLoss
 from olfmlm.model.modeling import *
 from collections import Counter
 import pickle
+from olfmlm.NNSC import MatrixReconstruction as MR
 
 
 # def set_requires_grad(module, val):
 #     for p in module.parameters():
 #         p.requires_grad = val
+
+def estimate_coeff_mat_batch_opt(target_embeddings, basis_pred, L1_losss_B, device, coeff_opt='rmsprop', lr=0.05, max_iter=60):
+    batch_size = target_embeddings.size(0)
+    mr = MR(batch_size, target_embeddings.size(1), basis_pred.size(1), device=device)
+    loss_func = torch.nn.MSELoss(reduction='sum')
+
+    # opt = torch.optim.LBFGS(mr.parameters(), lr=lr, max_iter=max_iter, max_eval=None, tolerance_grad=1e-05,
+    #                         tolerance_change=1e-09, history_size=100, line_search_fn=None)
+    #
+    # def closure():
+    #     opt.zero_grad()
+    #     mr.compute_coeff_pos()
+    #     pred = mr(basis_pred)
+    #     loss = loss_func(pred, target_embeddings) / 2
+    #     # loss += L1_losss_B * mr.coeff.abs().sum()
+    #     loss += L1_losss_B * (mr.coeff.abs().sum() + mr.coeff.diagonal(dim1=1, dim2=2).abs().sum())
+    #     # print('loss:', loss.item())
+    #     loss.backward()
+    #
+    #     return loss
+    #
+    # opt.step(closure)
+
+    if coeff_opt == 'sgd':
+        opt = torch.optim.SGD(mr.parameters(), lr=lr, momentum=0, dampening=0, weight_decay=0, nesterov=False)
+    elif coeff_opt == 'asgd':
+        opt = torch.optim.ASGD(mr.parameters(), lr=lr, lambd=0.0001, alpha=0.75, t0=1000000.0, weight_decay=0)
+    elif coeff_opt == 'adagrad':
+        opt = torch.optim.Adagrad(mr.parameters(), lr=lr, lr_decay=0, weight_decay=0, initial_accumulator_value=0)
+    elif coeff_opt == 'rmsprop':
+        opt = torch.optim.RMSprop(mr.parameters(), lr=lr, alpha=0.99, eps=1e-08, weight_decay=0, momentum=0,
+                                  centered=False)
+    elif coeff_opt == 'adam':
+        opt = torch.optim.Adam(mr.parameters(), lr=lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
+    else:
+        raise RuntimeError('%s not implemented for coefficient estimation. Please check args.' % coeff_opt)
+
+    for i in range(max_iter):
+        opt.zero_grad()
+        pred = mr(basis_pred)
+        loss = loss_func(pred, target_embeddings) / 2
+        # loss += L1_losss_B * mr.coeff.abs().sum()
+        # loss += L1_losss_B * (mr.coeff.abs().sum() + mr.coeff.diagonal(dim1=1, dim2=2).abs().sum())
+        loss += L1_losss_B * mr.coeff.abs().sum()
+        # print('loss:', loss.item())
+        loss.backward()
+        opt.step()
+        mr.compute_coeff_pos()
+
+    return mr.coeff.detach()
+
 
 def get_freq_weight():
     with open('/iesl/canvas/rueiyaosun/freq_counter.pkl', 'rb') as handle:
@@ -277,8 +329,9 @@ class Bert(PreTrainedBertModel):
             '''
             drop_out_flag = False
             if self.use_dropout:
-                if np.random.uniform()<=0.05:
+                if np.random.uniform()>=0: #<=0.05:
                     choice = np.random.randint(3, size=1).item()
+                    choice = 0
                     send_emb_tensor = send_emb_tensor[choice].unsqueeze(dim=0)
                     recv_emb_tensor = recv_emb_tensor[choice].unsqueeze(dim=0)
                     drop_out_flag = True
@@ -309,8 +362,41 @@ class Bert(PreTrainedBertModel):
                                                  reduce_func='weighted', word_weight=freq_w[half:])
                 score_right = self.masked_softmax(score_right, att_mask[:half, :],
                                                   reduce_func='weighted', word_weight=freq_w[:half])
+            elif self.extra_token=='token-mr':
+                #(batch, number of tokens, emb_size)
+                token_hidden = sequence_output[:, 4:, :]
+                #project to embedding space
+                token_hidden_proj = self.lm.transform(token_hidden, not_norm=self.unnorm_token)
 
+                #normalize
+                token_hidden_proj_detach = token_hidden_proj.detach().clone()
+                #token_hidden_proj_detach = token_hidden_proj_detach / (0.000000000001 + token_hidden_proj_detach.norm(dim=2,keepdim=True))  # If this step is really slow, consider to do normalization before doing unfold
 
+                #compute mr matrix for pos/neg ample, return dot-product
+                score_left = self.mr_loss(token_hidden_proj_detach[half:], send_emb_tensor)
+                score_right = self.mr_loss(token_hidden_proj_detach[:half], recv_emb_tensor)
+
+                freq_w = freq_w[:, 4:]
+                score_left = self.masked_softmax(score_left,  att_mask[half:, :],
+                                                 reduce_func='weighted', word_weight=freq_w[half:])
+                score_right = self.masked_softmax(score_right, att_mask[:half, :],
+                                                  reduce_func='weighted', word_weight=freq_w[:half])
+                #mr_neg = estimate_coeff_mat_batch_opt(token_hidden_proj_detach[:half], recv_emb_tensor.detach().clone(), 0.2, torch.device('cuda'))
+                #estimate_coeff_mat_batch_opt()
+
+            elif self.extra_token=='vocab-mr':
+                token_embeds = self.bert.embeddings.word_embeddings(token_index[:, 4:])
+                token_embeds_detach = token_embeds.detach().clone()
+                #token_embeds_detach = token_embeds_detach / (0.000000000001 + token_embeds_detach.norm(dim=2, keepdim=True))  # If this step is really slow, consider to do normalization before doing unfold
+
+                score_left = self.mr_loss(token_embeds_detach[half:], send_emb_tensor)
+                score_right = self.mr_loss(token_embeds_detach[:half], recv_emb_tensor)
+
+                freq_w= freq_w[:,4:]
+                score_left = self.masked_softmax(score_left,  att_mask[half:, :],
+                                                 reduce_func='weighted', word_weight=freq_w[half:])
+                score_right = self.masked_softmax(score_right, att_mask[:half, :],
+                                                  reduce_func='weighted', word_weight=freq_w[:half])
 
             elif self.extra_token=='vocab':
                 #bert vocab embedding by token index
@@ -583,6 +669,9 @@ class Bert(PreTrainedBertModel):
     def masked_softmax(self, prob, mask, reduce_func=None, word_weight=None):
         '''
         mask out padding
+        prob: (batch,batch,number_of_tokens)
+        mask: (batch, number_of_tokens (include facet) )
+        word_weight: (batch, number_of_tokens)
         '''
 
 
@@ -592,7 +681,7 @@ class Bert(PreTrainedBertModel):
 
         #normalize
         #word_weight = word_weight / word_weight.sum(dim=1, keepdim=True)
-        half = prob.shape[0]
+        half = prob.shape[0] #batch size
         prob = prob * mask.float()
         if reduce_func == 'log':
             prob = torch.nn.functional.log_softmax(prob.reshape(half, -1), dim=1)
@@ -600,7 +689,7 @@ class Bert(PreTrainedBertModel):
             prob = (prob * mask).sum(dim=2) / mask.sum(dim=1)
 
         elif reduce_func=='weighted':
-            prob = torch.nn.functional.log_softmax(prob.reshape(half, -1), dim=1)
+            prob = torch.nn.functional.log_softmax(prob.reshape(half, -1), dim=1) #do softmax per sentences
             prob = prob.reshape(half, half, -1)
             prob = prob * word_weight #already masked
             prob = prob.sum(dim=2) / mask.sum(dim=1)
@@ -661,3 +750,45 @@ class Bert(PreTrainedBertModel):
         score = (sel_prob * mask_all).sum(dim=2)/mask_all.sum(dim=2)
         #score = (sel_prob * mask_all).sum(dim=2)
         return score
+
+    def mr_loss(self,token_hidden_proj_detach,facet_emb):
+        '''
+        token_hidden_proj_detach: (batch, number_of_tokens, emb_size)
+        facet_emb: (number_of_facet,batch,emb_size)
+        '''
+
+        batch_size = token_hidden_proj_detach.shape[0]
+        seq_len = token_hidden_proj_detach.shape[1]
+        mr_pos = estimate_coeff_mat_batch_opt(token_hidden_proj_detach,
+                                              facet_emb.transpose(0, 1).detach().clone(), 0.2,
+                                              torch.device('cuda'),max_iter=60)
+        '''
+        Our negative examples are inside in the batch. 
+        For example, considering batch size=16 and the first sentences, 
+        the first one is positive example and the left are negative examples.
+        Write a for loop to select negative examples correspondingly.
+        (Need to write in a more efficient way)
+        '''
+        neg_list = []
+        for i in range(batch_size):
+            neg_list.append(torch.cat([token_hidden_proj_detach[:i], token_hidden_proj_detach[i + 1:]]).reshape(-1, 768))
+
+        # batch, number_of_tokens*(batch-1)
+        neg_list = torch.stack(neg_list)
+        mr_neg = estimate_coeff_mat_batch_opt(neg_list,
+                                              facet_emb.transpose(0, 1).detach().clone(), 0.2,
+                                              torch.device('cuda'))
+
+        dot_pos = torch.sum(torch.bmm(facet_emb.transpose(0, 1).transpose(2, 1),
+                                      mr_pos.transpose(2,1)) * token_hidden_proj_detach.transpose(2,1), dim=1)  # -> (Batch, numbers of tokens)
+        dot_neg = torch.sum(torch.bmm(facet_emb.transpose(0, 1).transpose(2, 1),
+                                      mr_neg.transpose(2, 1)) * neg_list.transpose(2, 1), dim=1)
+        prob = []
+        '''
+        Combine pos and neg, and put pos in the right index for afterward loss computing.
+        i.e., the first example should locate at index 0, the second index 1...etc
+        '''
+        for i in range(batch_size):
+            prob.append(torch.cat([dot_neg[i,:i*seq_len], dot_pos[i], dot_neg[i,seq_len*i:]]))
+        prob = torch.stack(prob)
+        return prob.reshape(batch_size,batch_size,-1) #batch, batch, number_of_tokens

@@ -87,7 +87,7 @@ class BertModel(torch.nn.Module):
         #     self.small_config = BertConfig(args.bert_small_config_file)
         #     model_args.append(self.small_config)
 
-           
+
         self.model = Bert(*model_args, modes=args.modes.split(','), extra_token=args.extra_token,
                           agg_function=args.agg_function, unnorm_facet=args.unnorm_facet,
                           unnorm_token=args.unnorm_token, facet2facet=args.facet2facet, use_dropout=args.use_dropout)

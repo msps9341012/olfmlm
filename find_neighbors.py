@@ -51,7 +51,7 @@ class Vocab_finder:
         view_list=[]
         for i in range(1, 4):
             tmp = model.model.sent['mf']['v_' + str(i)](sent_encode[:, i])
-            view = model.model.sent['mf']['s_' + str(i)](tmp)
+            view = model.model.sent['mf']['s_' + str(i)](tmp,not_norm=model.model.unnorm_facet)
             view = view.cpu().detach().numpy()
             faiss.normalize_L2(view)
             view_list.append(view)

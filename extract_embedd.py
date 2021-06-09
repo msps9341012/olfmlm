@@ -22,8 +22,9 @@ from tqdm import tqdm
 mode=sys.argv[1]
 unnorm = sys.argv[2].lower() == 'true'
 
-
-model_path = pretrained_path +"_{mode}/mf+mlm/best/model.pt".format(mode = mode)
+#ck/model_1_86400.pt
+model_path = pretrained_path +"_{mode}/mf+mlm/ck/best/model.pt".format(mode = mode)
+#model_path = pretrained_path +"_{mode}/mf+mlm/best/model.pt".format(mode = mode)
 
 # The path where you want to store the facet vectors
 save_dir='/iesl/canvas/rueiyaosun/embeds'
@@ -42,10 +43,12 @@ args.modes = 'mlm,mf'
 args.model_type = 'mf+mlm'
 #although extra_token and agg_function do not matter in forward function, we only care about the facets' outputs
 args.extra_token = 'token'
-args.agg_function = 'logsum'
+args.agg_function = 'max'
 args.same_weight = False
 args.unnorm_facet = False
 args.unnorm_token = False
+args.facet2facet = True
+args.use_dropout = False
 '''
 Loading dataset part is also the same.
 '''

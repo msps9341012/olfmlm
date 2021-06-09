@@ -75,6 +75,7 @@ def add_model_config_args(parser):
     group.add_argument('--unnorm-token', action='store_true', help='remove layernorm on token side')
     group.add_argument('--facet2facet', action='store_true', help='use facet to facet loss')
     group.add_argument('--use-dropout', action='store_true', help='force to have only one facet')
+    group.add_argument('--alter-point', type=int, default=0)
 
     return parser
 

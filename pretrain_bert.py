@@ -59,6 +59,7 @@ global_weight=None
 batch_step = 0
 
 
+
 def get_model(tokenizer, args):
     """Build the model."""
 
@@ -251,14 +252,14 @@ def forward_step(data, model, criterion, modes, args):
 
             score_left, score_right, score_all = score
             if args.agg_function in ['max','logsum','concat']:
-                if args.extra_token=='token':
+                if args.extra_token in ['token', 'token-mr']:
                     #loss_left = score_left
                     #loss_right = score_right
 
                     loss_left = criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                     loss_right = criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
 
-                elif args.extra_token =='vocab':
+                elif args.extra_token in ['vocab', 'vocab-mr']:
                     '''
                     if using word2vec, comment out the below criterion_nll lines
                     loss_left=score_left
@@ -285,7 +286,7 @@ def forward_step(data, model, criterion, modes, args):
                 pass
 
 
-            if args.facet2facet:
+            if args.facet2facet and batch_step:
                 loss_facet = criterion_cls(score_all.contiguous().float(),
                                            aux_labels[mode].view(-1).contiguous()).mean()
                 losses[mode] += loss_facet
@@ -430,6 +431,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     iteration = 0
     tot_iteration = 0
 
+    threshold=0
     # Data iterator.
     modes = args.modes.split(',')
     # Incrementally add tasks after each epoch
@@ -518,13 +520,21 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
            
         # Logging.
         if log_tokens > args.log_interval:
-#             print(model.model.bert.pooler.dense.weight)
-#             print(model.model.sent.mf.v_1.dense.weight)
-#             print(model.model.sent.mf.v_2.dense.weight)
-#             print(model.model.sent.mf.v_3.dense.weight)
+            # print(model.model.bert.pooler.dense.weight)
+            # print(model.model.sent.mf.v_1.dense.weight)
+            # print(model.model.sent.mf.v_2.dense.weight)
+            # print(model.model.sent.mf.v_3.dense.weight)
+            print(model.model.extra_token)
+            threshold +=1
+            if args.extra_token in ['vocab','vocab-mr']:
+                check_vocab(model, tz)
 
+            #change loss
+            if threshold==args.alter_point:
+                #global batch_step
+                #batch_step+=1
+                model.model.extra_token += '-mr'
 
-            #check_vocab(model, tz)
 
             log_tokens = 0
             learning_rate = optimizer.param_groups[0]['lr']
