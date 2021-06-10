@@ -249,8 +249,7 @@ def forward_step(data, model, criterion, modes, args):
             '''
             loss function related to mf task
             '''
-
-            score_left, score_right, score_all = score
+            score_left, score_right, score_all, loss_autoenc = score
             if args.agg_function in ['max','logsum','concat']:
                 if args.extra_token in ['token', 'token-mr']:
                     #loss_left = score_left
@@ -286,10 +285,13 @@ def forward_step(data, model, criterion, modes, args):
                 pass
 
 
-            if args.facet2facet and batch_step:
+            if args.facet2facet:
                 loss_facet = criterion_cls(score_all.contiguous().float(),
                                            aux_labels[mode].view(-1).contiguous()).mean()
                 losses[mode] += loss_facet
+
+            if args.autoenc_reg_const>0:
+                losses[mode] += loss_autoenc
 
             #print(losses[mode])
         else:
@@ -524,17 +526,10 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             # print(model.model.sent.mf.v_1.dense.weight)
             # print(model.model.sent.mf.v_2.dense.weight)
             # print(model.model.sent.mf.v_3.dense.weight)
-            print(model.model.extra_token)
-            threshold +=1
-            if args.extra_token in ['vocab','vocab-mr']:
-                check_vocab(model, tz)
-
-            #change loss
-            if threshold==args.alter_point:
-                #global batch_step
-                #batch_step+=1
-                model.model.extra_token += '-mr'
-
+            # print(model.model.extra_token)
+            # threshold +=1
+            # if args.extra_token in ['vocab','vocab-mr']:
+            #     check_vocab(model, tz)
 
             log_tokens = 0
             learning_rate = optimizer.param_groups[0]['lr']

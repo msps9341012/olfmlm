@@ -202,7 +202,8 @@ class Bert(PreTrainedBertModel):
     """
 
     def __init__(self, config, modes=["mlm"], extra_token='cls', agg_function='max',
-                 unnorm_facet=False,unnorm_token=False, facet2facet=False, use_dropout=False):
+                 unnorm_facet=False,unnorm_token=False, facet2facet=False,
+                 use_dropout=False, autoenc_reg_const=0.0):
         super(Bert, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertLMTokenHead(config, self.bert.embeddings.word_embeddings.weight)
@@ -257,7 +258,9 @@ class Bert(PreTrainedBertModel):
             #self.sent["mf"]['weighted'] = nn.Linear(config.hidden_size*2, 1)
             self.softmax_weight=None
             self.prob_w = torch.tensor(get_freq_weight(),dtype=torch.float32).cuda()
-            self.prob_w = torch.stack([self.prob_w]*32)
+            #self.prob_w = torch.stack([self.prob_w]*32)
+            self.autoenc_reg_const = autoenc_reg_const
+            self.criterion_autoenc = torch.nn.MSELoss(reduction='mean')
 
         if "fs" in modes:
             self.sent["fs"] = BertHeadTransform(config)
@@ -319,7 +322,6 @@ class Bert(PreTrainedBertModel):
             recv_emb_tensor=torch.stack(recv_emb_list)
             
             send_recv_list=[send_emb_tensor, recv_emb_tensor]
-            
             #compute the variance between the facets
             self.emedding_var_after_trans=self.var_of_embedding(torch.cat(send_recv_list,dim=1).transpose(0,1),dim=1)
             self.emedding_var_across = self.var_of_embedding(torch.cat(send_recv_list, dim=1).transpose(0, 1),dim=0)
@@ -478,10 +480,6 @@ class Bert(PreTrainedBertModel):
 
 
             if self.facet2facet:
-                '''
-                The primitive settings, have not maintained for a while.
-                Can skip it.
-                '''
 
                 # #score_all=[]
                 # view_all=[]
@@ -501,20 +499,30 @@ class Bert(PreTrainedBertModel):
 
                     score_all = self.agg_function_map(torch.stack(score_all), self.agg_function, dim=(0,1))
 
-                scores["mf"] = [score_left, score_right, score_all]
             else:
-                scores["mf"] = [score_left, score_right, None]
+                score_all = None
 
+            if self.autoenc_reg_const > 0:
+                # TODO: temporary to turn off dropout on autoencoder.
+                drop_out_flag = False
+                if drop_out_flag:
+                    facets_avg = sequence_output[:,choice,:]
+                else:
+                    facets_avg = torch.mean(sequence_output[:,1:4,:], dim=1)
 
-            #scores["mf"]=torch.stack(view_all)
-            #for i in range(3):
-                #score_all.append(self.cross_cos_sim(recv_emb_tensor,send_emb_tensor[i]))
-             
-            
-            #scores["mf"]=torch.stack(score_all)
-            
-#           #torch.amax(torch.stack(score_all),dim=(0,1))
-            
+                token_embeds = self.bert.embeddings.word_embeddings(token_index[:,4:]).detach().clone()
+                # I have made a change in my version so that it is like this, but I believe on your end
+                # you do not need to slice freq_w here.
+                token_weights = (freq_w * att_mask[:,4:]).unsqueeze(-1)
+                words_weighted_sum = (token_embeds * token_weights).mean(dim=1)
+
+                loss_autoenc = self.autoenc_reg_const * self.criterion_autoenc(facets_avg, words_weighted_sum)
+
+            else:
+                loss_autoenc = torch.tensor(0.).cuda()
+
+            scores["mf"] = [score_left, score_right, score_all, loss_autoenc]
+
                 
         if "rg" in modes:
             half = len(input_ids[0])
