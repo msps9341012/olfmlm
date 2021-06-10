@@ -258,7 +258,6 @@ class Bert(PreTrainedBertModel):
             
             l = [] #for weighted sum, now is not our main target
             r = [] #for weighted sum, now is not our main target
-
             for i in range(1,4):
                 l.append(sequence_output[:,i][:half])
                 r.append(sequence_output[:,i][half:])
@@ -315,7 +314,7 @@ class Bert(PreTrainedBertModel):
             '''
             freq_w = freq_w[:, 4:]
 
-            if self.extra_token=='token+facet':
+            if self.extra_token=='token+facet': #predicting token and facet
 
                 token_hidden = sequence_output[:, 4:, :]
                 token_hidden_proj = self.lm.transform(token_hidden, not_norm=self.unnorm_token)
@@ -455,10 +454,6 @@ class Bert(PreTrainedBertModel):
 
 
             if self.facet2facet:
-                '''
-                The primitive settings, have not maintained for a while.
-                Can skip it.
-                '''
 
                 # #score_all=[]
                 # view_all=[]
@@ -680,7 +675,6 @@ class Bert(PreTrainedBertModel):
 
         score_left = self.get_probs_hidden(left, token_hidden_proj)
         score_left = self.agg_function_map(torch.stack(score_left), self.agg_function, dim=0)
-        breakpoint()
         # score_left = self.word2vec_loss(score_left, att_mask[half:, :], freq_w[half:])
         # score_right  = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
         if reduce_func=='facet_loss':

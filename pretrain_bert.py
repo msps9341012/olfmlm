@@ -251,6 +251,7 @@ def forward_step(data, model, criterion, modes, args):
             loss_left = 0
             loss_right = 0
             score_left, score_right, score_all, loss_autoenc = score
+
             if args.agg_function in ['max','logsum','concat','softmax']:
                 if args.extra_token in ['token','facet']:
                     #loss_left = score_left
@@ -298,7 +299,6 @@ def forward_step(data, model, criterion, modes, args):
                                       aux_labels[mode].view(-1).contiguous()).mean()
                     else:
                         score_tmp = score_all[i]#*model.model.neg_w2
-                        score_tmp = torch.cat([score_tmp, score_tmp[:,8:]],dim=1)
                         loss_facet += criterion_cls(score_tmp.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                 losses[mode] += loss_facet
 
@@ -684,11 +684,11 @@ def main():
 
     experiment=None
     #
-    # experiment = Experiment(api_key='Bq7FWdV8LPx8HkWh67e5UmUPm',
-    #                          project_name='testing',
-    #                          auto_param_logging=False, auto_metric_logging=False,
-    #                          disabled=(not args.track_results))
-    # experiment.log_parameters(vars(args))
+    experiment = Experiment(api_key='Bq7FWdV8LPx8HkWh67e5UmUPm',
+                             project_name='testing',
+                             auto_param_logging=False, auto_metric_logging=False,
+                             disabled=(not args.track_results))
+    experiment.log_parameters(vars(args))
 
 
     metrics = {}
