@@ -320,7 +320,10 @@ class Bert(PreTrainedBertModel):
             
             send_emb_tensor=torch.stack(send_emb_list)
             recv_emb_tensor=torch.stack(recv_emb_list)
-            
+
+
+            self.corr_list = self.est_correlation(send_emb_tensor,recv_emb_tensor)
+
             send_recv_list=[send_emb_tensor, recv_emb_tensor]
             #compute the variance between the facets
             self.emedding_var_after_trans=self.var_of_embedding(torch.cat(send_recv_list,dim=1).transpose(0,1),dim=1)
@@ -338,8 +341,11 @@ class Bert(PreTrainedBertModel):
                     recv_emb_tensor = recv_emb_tensor[choice].unsqueeze(dim=0)
                     drop_out_flag = True
             #get the frequency weight by token index
+
+
             token_index = torch.cat(input_ids, dim=0)
-            freq_w = torch.gather(self.prob_w, 1, index=token_index)
+            prob_w_tensor = torch.stack([self.prob_w] * (half * 2))
+            freq_w = torch.gather(prob_w_tensor, 1, index=token_index)
 
 
             '''
@@ -360,10 +366,12 @@ class Bert(PreTrainedBertModel):
                 # score_right  = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
 
                 freq_w = freq_w[:, 4:]
+                breakpoint()
                 score_left = self.masked_softmax(score_left,  att_mask[half:, :],
-                                                 reduce_func='weighted', word_weight=freq_w[half:])
+                                                 reduce_func='log', word_weight=freq_w[half:])
                 score_right = self.masked_softmax(score_right, att_mask[:half, :],
-                                                  reduce_func='weighted', word_weight=freq_w[:half])
+                                                  reduce_func='log', word_weight=freq_w[:half])
+
             elif self.extra_token=='token-mr':
                 #(batch, number of tokens, emb_size)
                 token_hidden = sequence_output[:, 4:, :]
@@ -800,3 +808,20 @@ class Bert(PreTrainedBertModel):
             prob.append(torch.cat([dot_neg[i,:i*seq_len], dot_pos[i], dot_neg[i,seq_len*i:]]))
         prob = torch.stack(prob)
         return prob.reshape(batch_size,batch_size,-1) #batch, batch, number_of_tokens
+
+    def est_correlation(self,l,r):
+        dot_prod = torch.bmm(l, r.transpose(2,1)).reshape(l.shape[0],-1)
+
+        corr_list = []
+        for i in range(l.shape[0]):
+            for j in range(i+1,l.shape[0]):
+                corr_list.append(self.get_correlation(dot_prod[i],dot_prod[j]))
+        return corr_list
+
+
+    def get_correlation(self, x, y):
+        vx = x - torch.mean(x)
+        vy = y - torch.mean(y)
+
+        cor = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2)) * torch.sqrt(torch.sum(vy ** 2)))
+        return cor
