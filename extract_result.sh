@@ -23,7 +23,7 @@
 # Getmax rte_accuracy
 
 Getall(){
-    res=$(grep -E -- "^$1.*$2" /iesl/canvas/rueiyaosun/finetuned_berts/mf+mlm/results.tsv)
+    res=$(grep -E -- "^$1.{2}\s.*$2" /iesl/canvas/rueiyaosun/finetuned_berts/mf+mlm/results.tsv)
     marco_number=$(echo $res |grep -oE "macro_avg:[0-9 .]+" | grep -oE "\s[0-9 .]+")
     myarray=($marco_number)
     marco_max=$(printf '%s\n' "${myarray[@]}" | awk '$1 > m || NR == 1 { m = $1 } END { print m }')
