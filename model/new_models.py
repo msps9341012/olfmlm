@@ -471,9 +471,9 @@ class Bert(PreTrainedBertModel):
 
                 else:
                     # A -> B & C
-                    score_all_1= self.get_f2f_loss(send_emb_tensor, torch.cat([recv_emb_tensor,neg_emb_tensor*2],dim=1))
+                    score_all_1= self.get_f2f_loss(send_emb_tensor, torch.cat([recv_emb_tensor,neg_emb_tensor],dim=1))
                     # C -> B & A
-                    score_all_2= self.get_f2f_loss(neg_emb_tensor, torch.cat([recv_emb_tensor,send_emb_tensor*2],dim=1))
+                    score_all_2= self.get_f2f_loss(neg_emb_tensor, torch.cat([recv_emb_tensor,send_emb_tensor],dim=1))
 
                 score_all = [score_all_1,score_all_2]
             else:
@@ -670,6 +670,7 @@ class Bert(PreTrainedBertModel):
 
     def get_token_loss_by_parts(self, left,token_hidden_proj, att_mask, freq_w, reduce_func='weighted'):
 
+        #for handling dropout
         if left.shape[0]!=3:
             left = left.unsqueeze(dim=0)
 
