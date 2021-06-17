@@ -87,11 +87,12 @@ class BertModel(torch.nn.Module):
         #     self.small_config = BertConfig(args.bert_small_config_file)
         #     model_args.append(self.small_config)
 
-           
+
         self.model = Bert(*model_args, modes=args.modes.split(','), extra_token=args.extra_token,
                           agg_function=args.agg_function, unnorm_facet=args.unnorm_facet,
                           unnorm_token=args.unnorm_token, facet2facet=args.facet2facet,
-                          use_dropout=args.use_dropout, autoenc_reg_const=args.autoenc_reg_const)
+                          use_dropout=args.use_dropout, autoenc_reg_const=args.autoenc_reg_const,
+                          use_double=args.double)
         if args.pretrained_bert:
             print('use pretrained weight')
             self.model.bert=self.model.bert.from_pretrained('bert-base-uncased',cache_dir=args.cache_dir,config_file_path=args.bert_config_file)

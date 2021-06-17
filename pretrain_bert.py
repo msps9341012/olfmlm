@@ -269,17 +269,6 @@ def forward_step(data, model, criterion, modes, args):
                     '''
                     loss_left += criterion_nll(score_left.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
                     loss_right += criterion_nll(score_right.contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
-                elif args.extra_token=='token+facet':
-
-                    #token loss
-                    loss_left += criterion_nll(score_left[0].contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
-                    loss_left += criterion_nll(score_left[1].contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
-
-                    #facet loss
-                    loss_right += criterion_nll(score_right[0].contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
-                    loss_right += criterion_nll(score_right[1].contiguous().float(),aux_labels[mode].view(-1).contiguous()).mean()
-                    loss_weight = torch.stack(att_mask).sum(dim=2).float().mean()
-                    loss_right *= (loss_weight/3)
 
                 else:
                     pass
@@ -305,7 +294,6 @@ def forward_step(data, model, criterion, modes, args):
             if args.autoenc_reg_const>0:
                 losses[mode] += loss_autoenc
 
-            #print(losses[mode])
         else:
             score = score.view(-1, 2) if mode in ["tc", "cap"] else score
             losses[mode] = criterion_cls(score.contiguous().float(),
