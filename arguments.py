@@ -311,7 +311,7 @@ def get_args():
     
     if 'mf' in args.modes:
         global pretrained_path
-        pretrained_path=pretrained_path+'_'+args.agg_function+'_'+args.extra_token
+        pretrained_path=pretrained_path+'_'+args.agg_function+'_'+args.extra_token+'f2f_unnorm_facet_dp'
         if args.dot:
             pretrained_path=pretrained_path+'_'+'dot'
     

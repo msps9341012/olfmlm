@@ -563,8 +563,8 @@ def add_bert_wpm_vocab(vocab, bert_model_name):
     from pytorch_pretrained_bert import BertTokenizer
 
     do_lower_case = "uncased" in bert_model_name
-    tokenizer = BertTokenizer.from_pretrained(bert_model_name, do_lower_case=do_lower_case)
-    #tokenizer = BertTokenizer.from_pretrained(bert_model_name, do_lower_case=do_lower_case, cache_dir='/iesl/canvas/rueiyaosun/cache_dir')
+    #tokenizer = BertTokenizer.from_pretrained(bert_model_name, do_lower_case=do_lower_case)
+    tokenizer = BertTokenizer.from_pretrained(bert_model_name, do_lower_case=do_lower_case, cache_dir='/iesl/canvas/rueiyaosun/cache_dir')
     ordered_vocab = tokenizer.convert_ids_to_tokens(range(len(tokenizer.vocab)))
     log.info("BERT WPM vocab (model=%s): %d tokens", bert_model_name, len(ordered_vocab))
     for word in ordered_vocab:

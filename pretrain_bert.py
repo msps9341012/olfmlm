@@ -558,6 +558,9 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
                 #metrics['var_after_pool']=model.model.embedding_var_after_pool
                 metrics['var_after_trans']=model.model.emedding_var_after_trans
                 metrics['emedding_var_across'] = model.model.emedding_var_across
+                metrics['cor_1_2']=model.model.corr_list[0]
+                metrics['cor_1_3'] = model.model.corr_list[1]
+                metrics['cor_2_3'] = model.model.corr_list[2]
                 #experiment.log_curve(name='softmax_weight:', x=[1,2,3,4,5,6],y=global_weight.detach().cpu().numpy().tolist(), overwrite=True)
             experiment.log_metrics(metrics)
             #tot_iteration += iteration

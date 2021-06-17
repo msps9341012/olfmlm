@@ -366,12 +366,11 @@ class Bert(PreTrainedBertModel):
                 # score_right  = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
 
                 freq_w = freq_w[:, 4:]
-                breakpoint()
-                score_left = self.masked_softmax(score_left,  att_mask[half:, :],
-                                                 reduce_func='log', word_weight=freq_w[half:])
-                score_right = self.masked_softmax(score_right, att_mask[:half, :],
-                                                  reduce_func='log', word_weight=freq_w[:half])
 
+                score_left = self.masked_softmax(score_left,  att_mask[half:, :],
+                                                 reduce_func='weighted', word_weight=freq_w[half:])
+                score_right = self.masked_softmax(score_right, att_mask[:half, :],
+                                                  reduce_func='weighted', word_weight=freq_w[:half])
             elif self.extra_token=='token-mr':
                 #(batch, number of tokens, emb_size)
                 token_hidden = sequence_output[:, 4:, :]
@@ -693,12 +692,15 @@ class Bert(PreTrainedBertModel):
 
 
         mask = mask[:, 4:]
+        mask = mask.float()
         word_weight = word_weight * mask
 
         #normalize
         #word_weight = word_weight / word_weight.sum(dim=1, keepdim=True)
         half = prob.shape[0] #batch size
-        prob = prob * mask.float()
+        prob = prob * mask#.float()
+        #rep_value = torch.ones(prob.shape)*-1e10
+        #prob = torch.where(mask.expand(half, half, -1) != 0, prob, rep_value.cuda())
         if reduce_func == 'log':
             prob = torch.nn.functional.log_softmax(prob.reshape(half, -1), dim=1)
             prob = prob.reshape(half, half, -1)

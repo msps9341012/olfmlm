@@ -67,8 +67,8 @@ def get_tokenizer(tokenizer_name):
         from pytorch_pretrained_bert import BertTokenizer
 
         do_lower_case = tokenizer_name.endswith("uncased")
-        tokenizer = BertTokenizer.from_pretrained(tokenizer_name, do_lower_case=do_lower_case)
-        #tokenizer = BertTokenizer.from_pretrained(tokenizer_name, do_lower_case=do_lower_case,cache_dir='/iesl/canvas/rueiyaosun/cache_dir')
+        #tokenizer = BertTokenizer.from_pretrained(tokenizer_name, do_lower_case=do_lower_case)
+        tokenizer = BertTokenizer.from_pretrained(tokenizer_name, do_lower_case=do_lower_case,cache_dir='/iesl/canvas/rueiyaosun/cache_dir')
     elif tokenizer_name == "OpenAI.BPE":
         tokenizer = OpenAIBPETokenizer()
     elif tokenizer_name == "MosesTokenizer":

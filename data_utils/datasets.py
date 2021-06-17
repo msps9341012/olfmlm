@@ -35,8 +35,8 @@ import numpy as np
 import os
 
 import nltk
-#nltk.download('punkt',download_dir='/iesl/canvas/rueiyaosun/')
-nltk.download('punkt')
+nltk.download('punkt',download_dir='/iesl/canvas/rueiyaosun/')
+#nltk.download('punkt')
 from nltk import tokenize
 
 from olfmlm.data_utils.lazy_loader import lazy_array_loader, exists_lazy, make_lazy
