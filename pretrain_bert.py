@@ -294,6 +294,7 @@ def forward_step(data, model, criterion, modes, args):
                 losses[mode] += loss_autoenc
 
             #print(losses[mode])
+
         else:
             score = score.view(-1, 2) if mode in ["tc", "cap"] else score
             losses[mode] = criterion_cls(score.contiguous().float(),
@@ -530,7 +531,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             # threshold +=1
             # if args.extra_token in ['vocab','vocab-mr']:
             #     check_vocab(model, tz)
-
+            print('Facet stats:', model.model.facet_agg_stats)
             log_tokens = 0
             learning_rate = optimizer.param_groups[0]['lr']
             avg_loss = {}
@@ -561,6 +562,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
                 metrics['cor_1_2']=model.model.corr_list[0]
                 metrics['cor_1_3'] = model.model.corr_list[1]
                 metrics['cor_2_3'] = model.model.corr_list[2]
+
                 #experiment.log_curve(name='softmax_weight:', x=[1,2,3,4,5,6],y=global_weight.detach().cpu().numpy().tolist(), overwrite=True)
             experiment.log_metrics(metrics)
             #tot_iteration += iteration

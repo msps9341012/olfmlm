@@ -330,6 +330,17 @@ class Bert(PreTrainedBertModel):
             self.emedding_var_across = self.var_of_embedding(torch.cat(send_recv_list, dim=1).transpose(0, 1),dim=0)
 
             '''
+            Init stat
+            '''
+            self.facet_agg_stats = {}
+            if 'token' in self.extra_token:
+                self.facet_agg_stats['token'] = torch.zeros(3)
+            if 'vocab' in self.extra_token:
+                self.facet_agg_stats['vocab'] = torch.zeros(3)
+            if self.facet2facet:
+                self.facet_agg_stats['f2f'] = torch.zeros(9)
+
+            '''
             Code related to dropout
             '''
             drop_out_flag = False
@@ -368,9 +379,9 @@ class Bert(PreTrainedBertModel):
                 freq_w = freq_w[:, 4:]
 
                 score_left = self.masked_softmax(score_left,  att_mask[half:, :],
-                                                 reduce_func='weighted', word_weight=freq_w[half:])
+                                                 reduce_func='log', word_weight=freq_w[half:])
                 score_right = self.masked_softmax(score_right, att_mask[:half, :],
-                                                  reduce_func='weighted', word_weight=freq_w[:half])
+                                                  reduce_func='log', word_weight=freq_w[:half])
             elif self.extra_token=='token-mr':
                 #(batch, number of tokens, emb_size)
                 token_hidden = sequence_output[:, 4:, :]
@@ -443,7 +454,6 @@ class Bert(PreTrainedBertModel):
                 #
                 # score_left = self.vocab_prob(dot_left, right_index, att_mask[half:, :])
                 # score_right = self.vocab_prob(dot_right, left_index, att_mask[:half, :])
-
 
 
 
@@ -529,6 +539,16 @@ class Bert(PreTrainedBertModel):
                 loss_autoenc = torch.tensor(0.).cuda()
 
             scores["mf"] = [score_left, score_right, score_all, loss_autoenc]
+            '''
+            Normalize the stats
+            '''
+
+            if 'token' in self.extra_token:
+                self.facet_agg_stats['token'] = self.facet_agg_stats['token'] / torch.sum(self.facet_agg_stats['token'])
+            if 'vocab' in self.extra_token:
+                self.facet_agg_stats['vocab'] = self.facet_agg_stats['vocab'] / torch.sum(self.facet_agg_stats['vocab'])
+            if self.facet2facet:
+                self.facet_agg_stats['f2f'] = self.facet_agg_stats['f2f'] / torch.sum(self.facet_agg_stats['f2f'])
 
                 
         if "rg" in modes:
@@ -612,8 +632,32 @@ class Bert(PreTrainedBertModel):
 
 
     def agg_function_map(self, score, method, dim):
+        num_facets = len(score)
         if method == 'max':
-            return torch.amax(score,dim=dim)
+            if isinstance(dim, int):  #case token or vocab
+                vals, idxs = torch.max(score, dim=dim)
+                if num_facets == 3:
+                    counts = torch.bincount(idxs.flatten().cpu(), minlength=3)
+                    if self.extra_token == 'token':
+                        self.facet_agg_stats['token'] += counts
+                    elif self.extra_token == 'vocab':
+                        self.facet_agg_stats['vocab'] += counts
+                # else dropout batch, and stats will appear as 'nan'
+                return vals
+            elif isinstance(dim, tuple):  #case facet2facet. Assumes dim=(0,1)
+                vals_intermed, idxs_intermed = torch.max(score, dim=0)  # max over dim 0 of score
+                vals_final, idxs_final = torch.max(vals_intermed, dim=0)  # max over dims 0 and 1 of score
+                if num_facets == 3:
+                    second_facet_idxs = idxs_final.unsqueeze(0)
+                    first_facet_idxs = torch.gather(idxs_intermed, dim=0, index=second_facet_idxs)
+                    flattened = (first_facet_idxs * 3 + second_facet_idxs).flatten().cpu()
+                    counts = torch.bincount(flattened, minlength=9)
+                    self.facet_agg_stats['f2f'] += counts
+                # else dropout batch, and stats will appear as 'nan'
+                return vals_final
+            else:
+                pass
+                #return torch.amax(score,dim=dim)
         elif method == 'logsum':
             return torch.logsumexp(score,dim=dim)
 
