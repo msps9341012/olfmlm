@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """dataset objects for jsons, csvs, and BERT datasets"""
-
 import os
 import time
 from collections import deque
@@ -38,7 +37,6 @@ import nltk
 nltk.download('punkt',download_dir='/iesl/canvas/rueiyaosun/')
 #nltk.download('punkt')
 from nltk import tokenize
-
 from olfmlm.data_utils.lazy_loader import lazy_array_loader, exists_lazy, make_lazy
 from olfmlm.data_utils.tokenization import Tokenization
 
