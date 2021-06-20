@@ -25,7 +25,8 @@ from nltk import tokenize as nltk_tokenize
 import sentencepiece as spm
 from olfmlm.data_utils.wordpiece import BertTokenizer, PRETRAINED_VOCAB_ARCHIVE_MAP
 
-def make_tokenizer(tokenizer_type, corpus, model_path=None, vocab_size=None, model_type='bpe', pad_token=0, character_coverage=1.0, command_tokens=None, type_tokens=None, **kwargs):
+def make_tokenizer(tokenizer_type, corpus, model_path=None, vocab_size=None, model_type='bpe', pad_token=0, character_coverage=1.0,
+                   command_tokens=None, type_tokens=None, num_facets=3, **kwargs):
     """
     Helper function to instantiate a tokenizer given common combinations of options.
     """
@@ -33,7 +34,7 @@ def make_tokenizer(tokenizer_type, corpus, model_path=None, vocab_size=None, mod
     if isinstance(tokenizer_class, str):
         tokenizer_class = eval(tokenizer_class)
     if tokenizer_class is BertWordPieceTokenizer:
-        return BertWordPieceTokenizer(model_type, **kwargs)
+        return BertWordPieceTokenizer(model_type, num_facets=num_facets, **kwargs)
     text_tokenizer =  tokenizer_class(corpus=corpus, vocab_size=vocab_size, model_path=model_path, model_type=model_type,
                                       pad_token=pad_token, character_coverage=character_coverage)
     return Tokenizer(text_tokenizer, command_tokens, type_tokens)
@@ -683,7 +684,7 @@ class BertWordPieceTokenizer(Tokenizer):
     Loads a pretrained WordPiece tokenizer from `cache_dir` for tokenization
     in BERT training. Default to bert-large-uncased tokenizer.
     """
-    def __init__(self, tokenizer_model_type=None, cache_dir=None, **kwargs):
+    def __init__(self, tokenizer_model_type=None, cache_dir=None, num_facets=3, **kwargs):
         # default to bert-large-uncased tokenizer
         if tokenizer_model_type not in PRETRAINED_VOCAB_ARCHIVE_MAP:
             tokenizer_model_type = 'bert-large-uncased'
@@ -699,20 +700,25 @@ class BertWordPieceTokenizer(Tokenizer):
         self.num_tokens = len(self.text_tokenizer.vocab)
         self.num_text_tokens = self.num_tokens-5
         self.num_type_tokens = 2
-        '''
-        Add multi-facet vectors, s_1,s_2,s_3
-        '''
+
         self._command_tokens = [
             CommandToken('pad', '[PAD]', self.text_tokenizer.vocab['[PAD]']),
             CommandToken('ENC', '[CLS]', self.text_tokenizer.vocab['[CLS]']),
             CommandToken('MASK', '[MASK]', self.text_tokenizer.vocab['[MASK]']),
             CommandToken('unk', '[UNK]', self.text_tokenizer.vocab['[UNK]']),
             CommandToken('sep', '[SEP]', self.text_tokenizer.vocab['[SEP]']),
-            CommandToken('s_1', '[unused0]', self.text_tokenizer.vocab['[unused0]']),
-            CommandToken('s_2', '[unused1]', self.text_tokenizer.vocab['[unused1]']),
-            CommandToken('s_3', '[unused2]', self.text_tokenizer.vocab['[unused2]']),
-            
         ]
+        '''
+        Add multi-facet vectors, s_1,s_2,s_3, ..., s_i
+        '''
+
+        for i in range(num_facets):
+            self._command_tokens.append(CommandToken('s_{}'.format(i+1),
+                                                     '[unused{}]'.format(i),
+                                                     self.text_tokenizer.vocab['[unused{}]'.format(i)]))
+
+        assert len(self._command_tokens)== 5+num_facets, 'incorrect facet number'
+
         self.command_name_map = {tok.name: tok for tok in self._command_tokens}
         self.command_token_map = {tok.token: tok for tok in self._command_tokens}
         self.command_id_map = {tok.Id: tok for tok in self._command_tokens}

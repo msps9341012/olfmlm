@@ -44,9 +44,9 @@ class Pooler(nn.Module):
             seq_emb = proj_seq.gather(dim=1, index=idxs).squeeze(dim=1)
         elif self.pool_type == "first":
             #seq_emb = proj_seq[:, 0]
-            seq_emb = proj_seq[:, 1]
-            #seq_emb = proj_seq[:, 1:4].reshape(-1,3*proj_seq.shape[-1])
-            #seq_emb = self.trans(seq_emb)
+            #seq_emb = proj_seq[:, 1]
+            seq_emb = proj_seq[:, 1:4].reshape(-1,3*proj_seq.shape[-1])
+            seq_emb = self.trans(seq_emb)
         return seq_emb
 
 

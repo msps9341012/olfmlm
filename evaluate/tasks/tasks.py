@@ -40,7 +40,6 @@ from .registry import register_task  # global task registry
 from ..metrics.winogender_metrics import GenderParity
 
 """Define the tasks and code for loading their data.
-
 - As much as possible, following the existing task hierarchy structure.
 - When inheriting, be sure to write and call load_data.
 - Set all text data as an attribute, task.sentences (List[List[str]])
@@ -77,13 +76,11 @@ def process_single_pair_task_split(split, indexers, is_pair=True, classification
     """
     Convert a dataset of sentences into padded sequences of indices. Shared
     across several classes.
-
     Args:
         - split (list[list[str]]): list of inputs (possibly pair) and outputs
         - indexers ()
         - is_pair (Bool)
         - classification (Bool)
-
     Returns:
         - instances (Iterable[Instance]): an iterable of AllenNLP Instances with fields
     """
@@ -132,7 +129,6 @@ def create_subset_scorers(count, scorer_type, **args_to_scorer):
     Create a list scorers of designated type for each "coarse__fine" tag.
     This function is only used by tasks that need evalute results on tags,
     and should be called after loading all the splits.
-
     Parameters:
         count: N_tag, number of different "coarse__fine" tags
         scorer_type: which scorer to use
@@ -149,7 +145,6 @@ def update_subset_scorers(scorer_list, estimations, labels, tagmask):
     Add the output and label of one minibatch to the subset scorer objects.
     This function is only used by tasks that need evalute results on tags,
     and should be called every minibatch when task.scorer are updated.
-
     Parameters:
         scorer_list: a list of N_tag scorer object
         estimations: a (bs, *) tensor, model estimation
@@ -170,7 +165,6 @@ def collect_subset_scores(scorer_list, metric_name, tag_list, reset=False):
     Get the scorer measures of each tag.
     This function is only used by tasks that need evalute results on tags,
     and should be called in get_metrics.
-
     Parameters:
         scorer_list: a list of N_tag scorer object
         metric_name: string, name prefix for this group
@@ -188,11 +182,9 @@ def collect_subset_scores(scorer_list, metric_name, tag_list, reset=False):
 
 class Task(object):
     """Generic class for a task
-
     Methods and attributes:
         - load_data: load dataset from a path and create splits
         - get_metrics:
-
     Outside the task:
         - process: pad and indexify data given a mapping
         - optimizer
@@ -241,14 +233,12 @@ class Task(object):
 
     def get_split_text(self, split: str):
         """ Get split text, typically as list of columns.
-
         Split should be one of 'train', 'val', or 'test'.
         """
         return getattr(self, "%s_data_text" % split)
 
     def get_num_examples(self, split_text):
         """ Return number of examples in the result of get_split_text.
-
         Subclass can override this if data is not stored in column format.
         """
         return len(split_text[0])
@@ -430,6 +420,7 @@ class SSTTask(SingleClassificationTask):
             s2_idx=None,
             label_idx=1,
             skip_rows=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -597,6 +588,7 @@ class CoLATask(SingleClassificationTask):
             s1_idx=3,
             s2_idx=None,
             label_idx=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -790,6 +782,7 @@ class QQPTask(PairClassificationTask):
             label_idx=5,
             label_fn=int,
             skip_rows=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -866,6 +859,7 @@ class MultiNLISingleGenreTask(PairClassificationTask):
             skip_rows=1,
             filter_idx=3,
             filter_value=self.genre,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -933,6 +927,7 @@ class MRPCTask(PairClassificationTask):
             s2_idx=4,
             label_idx=0,
             skip_rows=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1007,6 +1002,7 @@ class STSBTask(PairRegressionTask):
             s2_idx=8,
             label_idx=9,
             label_fn=lambda x: float(x) / 5,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1126,6 +1122,7 @@ class MultiNLITask(PairClassificationTask):
             label_idx=11,
             label_fn=targ_map.__getitem__,
             skip_rows=1,
+            few_shot_sample=False
         )
 
         # Warning to anyone who edits this: The reference label is column *15*,
@@ -1627,6 +1624,7 @@ class RTETask(PairClassificationTask):
             s2_idx=2,
             label_idx=3,
             skip_rows=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1721,6 +1719,7 @@ class QNLITask(PairClassificationTask):
             s2_idx=2,
             label_idx=3,
             skip_rows=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1774,6 +1773,7 @@ class WNLITask(PairClassificationTask):
             s2_idx=2,
             label_idx=3,
             skip_rows=1,
+            few_shot_sample=False
         )
         self.val_data_text = load_tsv(
             self._tokenizer_name,
@@ -1968,7 +1968,6 @@ class DisSentTask(PairClassificationTask):
 
     def get_split_text(self, split: str):
         """ Get split text as iterable of records.
-
         Split should be one of 'train', 'val', or 'test'.
         """
         return self.load_data_for_path(self.files_by_split[split])
@@ -2242,7 +2241,6 @@ class SpanClassificationTask(Task):
         """
         Construct a span task.
         @register_task.
-
         Parameters
         ---------------------
             path: data directory
@@ -2520,7 +2518,6 @@ class WiCTask(PairClassificationTask):
         """
         Convert a dataset of sentences into padded sequences of indices. Shared
         across several classes.
-
         """
         # check here if using bert to avoid passing model info to tasks
         is_using_bert = "bert_wpm_pretokenized" in indexers

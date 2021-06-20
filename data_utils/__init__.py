@@ -62,7 +62,8 @@ def supported_corpus(corpus_name):
 def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=None, split=[1.], delim=',', loose=False,
                  binarize_sent=False, drop_unlabeled=False, tokenizer=None, tokenizer_type='CharacterLevelTokenizer',
                  tokenizer_model_path=None, vocab_size=None, model_type='bpe', pad_token=0, character_converage=1.0,
-                 non_binary_cols=None, enc_model_type='bert', max_dataset_size=None, **kwargs):
+                 non_binary_cols=None, enc_model_type='bert', max_dataset_size=None, num_facets=3,**kwargs):
+
     """function to create datasets+tokenizers for common options"""
     if isinstance(process_fn, str):
         process_fn = eval(process_fn)
@@ -97,9 +98,11 @@ def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=N
     else:
         ds = ConcatDataset(datasets)
     # make tokenizer for dataset
+
     if tokenizer is None:
         tokenizer = make_tokenizer(tokenizer_type, ds, tokenizer_model_path, vocab_size, model_type, 
-                                    pad_token, character_converage, **kwargs)
+                                    pad_token, character_converage, num_facets=num_facets,**kwargs)
+
 
     ds_type = ''
     ds_subtype = bert_dataset
@@ -111,9 +114,9 @@ def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=N
         ds = split_ds(ds, split, shuffle=True)
         if ds_type.lower() == 'bert':
             presplit_sentences = kwargs['presplit_sentences'] if 'presplit_sentences' in kwargs else False
-            ds = [ds_subtype(d, max_seq_len=seq_length, presplit_sentences=presplit_sentences, max_dataset_size=max_dataset_size) for d in ds]
+            ds = [ds_subtype(d, max_seq_len=seq_length, presplit_sentences=presplit_sentences, max_dataset_size=max_dataset_size, num_facets=num_facets) for d in ds]
     else:
         if ds_type.lower() == 'bert':
             presplit_sentences = kwargs['presplit_sentences'] if 'presplit_sentences' in kwargs else False
-            ds = ds_subtype(ds, max_seq_len=seq_length, presplit_sentences=presplit_sentences, max_dataset_size=max_dataset_size)
+            ds = ds_subtype(ds, max_seq_len=seq_length, presplit_sentences=presplit_sentences, max_dataset_size=max_dataset_size, num_facets=num_facets)
     return ds, tokenizer

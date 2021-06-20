@@ -77,24 +77,6 @@ def get_model(tokenizer, args):
 
     return model
 
-
-
-def get_params_for_headtransform(module):
-    weight_decay_params = {'params': []}
-    perturbation_params_list = []
-    no_weight_decay_params = {'params': [], 'weight_decay': 0}
-
-    for name, param in module.named_parameters():
-        if name=='dense.weight':
-            weight_decay_params['params'].extend([param])
-        elif name=='perturbation.weight':
-            perturbation_params_list.extend([param])
-        else:
-            no_weight_decay_params['params'].extend([param])
-
-    return weight_decay_params, no_weight_decay_params, perturbation_params_list
-
-
 def get_optimizer(model, args):
     """Set up the optimizer."""
 
@@ -102,34 +84,67 @@ def get_optimizer(model, args):
     while isinstance(model, DDP):
         model = model.module
 
-
-    # Get the all model parameters excluding model.model.sent.mf.BertHeadTransform
     param_groups = model.get_params()
 
-    '''
-    Get parameters related to model.model.sent.mf.BertHeadTransform
-    We can not get the layer's name by their default code, 
-    so it is difficult to distinguish between dense and our new perturbation layer (they are all Linear type)
-    
-    Although the below operation is a bit brutal and stupid, I am just too lazy to overwrite their function.
-    This process can be fixed and optimized later. 
-    '''
-    perturbation_params_lists = []
-    for module in [model.model.sent.mf.s_1, model.model.sent.mf.s_2, model.model.sent.mf.s_3]:
-        weight_decay_params, no_weight_decay_params, perturbation_params = get_params_for_headtransform(module)
-        param_groups += list((weight_decay_params,no_weight_decay_params))
-        if perturbation_params:
-            perturbation_params_lists += list(perturbation_params)
-
-
-
-    param_groups += [{'params': perturbation_params_lists, 'weight_decay': 0.5}]
-
-
     # Use Adam.
-    optimizer = Adam(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = Adam(param_groups,
+                     lr=args.lr, weight_decay=args.weight_decay)
 
     return optimizer
+
+
+
+# def get_params_for_headtransform(module):
+#     weight_decay_params = {'params': []}
+#     perturbation_params_list = []
+#     no_weight_decay_params = {'params': [], 'weight_decay': 0}
+#
+#     for name, param in module.named_parameters():
+#         if name=='dense.weight':
+#             weight_decay_params['params'].extend([param])
+#         elif name=='perturbation.weight':
+#             perturbation_params_list.extend([param])
+#         else:
+#             no_weight_decay_params['params'].extend([param])
+#
+#     return weight_decay_params, no_weight_decay_params, perturbation_params_list
+
+
+# def get_optimizer(model, args):
+#     """Set up the optimizer."""
+#
+#     # Build parameter groups (weight decay and non-decay).
+#     while isinstance(model, DDP):
+#         model = model.module
+#
+#
+#     # Get the all model parameters excluding model.model.sent.mf.BertHeadTransform
+#     param_groups = model.get_params()
+#
+#     '''
+#     Get parameters related to model.model.sent.mf.BertHeadTransform
+#     We can not get the layer's name by their default code,
+#     so it is difficult to distinguish between dense and our new perturbation layer (they are all Linear type)
+#
+#     Although the below operation is a bit brutal and stupid, I am just too lazy to overwrite their function.
+#     This process can be fixed and optimized later.
+#     '''
+#     perturbation_params_lists = []
+#     for key in model.model.sent.mf:
+#         weight_decay_params, no_weight_decay_params, perturbation_params = get_params_for_headtransform(model.model.sent.mf[key])
+#         param_groups += list((weight_decay_params,no_weight_decay_params))
+#         if perturbation_params:
+#             perturbation_params_lists += list(perturbation_params)
+#
+#
+#     if perturbation_params_lists:
+#         param_groups += [{'params': perturbation_params_lists, 'weight_decay': 0.5}]
+#
+#
+#     # Use Adam.
+#     optimizer = Adam(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+#
+#     return optimizer
 
 
 def get_learning_rate_scheduler(optimizer, args):
@@ -559,9 +574,12 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
                 #metrics['var_after_pool']=model.model.embedding_var_after_pool
                 metrics['var_after_trans']=model.model.emedding_var_after_trans
                 metrics['emedding_var_across'] = model.model.emedding_var_across
-                metrics['cor_1_2']=model.model.corr_list[0]
-                metrics['cor_1_3'] = model.model.corr_list[1]
-                metrics['cor_2_3'] = model.model.corr_list[2]
+
+                cor_index=0
+                for i in range(1,args.num_facets+1):
+                    for j in range(i+1,args.num_facets+1):
+                        metrics['cor_{}_{}'.format(i,j)] = model.model.corr_list[cor_index]
+                        cor_index += 1
 
                 #experiment.log_curve(name='softmax_weight:', x=[1,2,3,4,5,6],y=global_weight.detach().cpu().numpy().tolist(), overwrite=True)
             experiment.log_metrics(metrics)

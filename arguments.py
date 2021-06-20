@@ -76,6 +76,7 @@ def add_model_config_args(parser):
     group.add_argument('--facet2facet', action='store_true', help='use facet to facet loss')
     group.add_argument('--use-dropout', action='store_true', help='force to have only one facet')
     group.add_argument('--autoenc-reg-const', type=float, default=0.0)
+    group.add_argument('--num-facets', type=int, default=3)
 
     return parser
 
@@ -311,7 +312,7 @@ def get_args():
     
     if 'mf' in args.modes:
         global pretrained_path
-        pretrained_path=pretrained_path+'_'+args.agg_function+'_'+args.extra_token+'f2f_unnorm_facet_log_long'
+        pretrained_path=pretrained_path+'_'+args.agg_function+'_'+args.extra_token
         if args.dot:
             pretrained_path=pretrained_path+'_'+'dot'
     

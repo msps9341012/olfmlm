@@ -203,7 +203,7 @@ class Bert(PreTrainedBertModel):
 
     def __init__(self, config, modes=["mlm"], extra_token='cls', agg_function='max',
                  unnorm_facet=False,unnorm_token=False, facet2facet=False,
-                 use_dropout=False, autoenc_reg_const=0.0):
+                 use_dropout=False, autoenc_reg_const=0.0, num_facets=3):
         super(Bert, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertLMTokenHead(config, self.bert.embeddings.word_embeddings.weight)
@@ -212,6 +212,7 @@ class Bert(PreTrainedBertModel):
         self.unnorm_token = unnorm_token
         self.facet2facet=facet2facet
         self.use_dropout = use_dropout
+        self.num_facets = num_facets
         
         self.sent = torch.nn.ModuleDict()
         self.tok = torch.nn.ModuleDict()
@@ -245,15 +246,13 @@ class Bert(PreTrainedBertModel):
         '''
         if "mf" in modes:
             self.sent["mf"] = torch.nn.ModuleDict()
-            self.sent["mf"]['s_1'] = BertHeadTransform(config, use_perturbation=False)
-            self.sent["mf"]['s_2'] = BertHeadTransform(config, use_perturbation=False)
-            self.sent["mf"]['s_3'] = BertHeadTransform(config, use_perturbation=False)
+            for i in range(1,self.num_facets+1):
+                self.sent["mf"]['s_{}'.format(i)] = BertHeadTransform(config, use_perturbation=False)
+                self.sent["mf"]['v_{}'.format(i)] = BertPoolerforview(config)
             #self.sent['mf']['extra_head']=BertHeadTransform(config)
             self.extra_token = extra_token
             self.agg_function = agg_function
-            self.sent["mf"]['v_1'] = BertPoolerforview(config)
-            self.sent["mf"]['v_2'] = BertPoolerforview(config)
-            self.sent["mf"]['v_3'] = BertPoolerforview(config)
+
             #self.sent["mf"]['extra_pool']=BertPoolerforview(config)
             #self.sent["mf"]['weighted'] = nn.Linear(config.hidden_size*2, 1)
             self.softmax_weight=None
@@ -272,6 +271,7 @@ class Bert(PreTrainedBertModel):
     def forward(self, modes, input_ids, token_type_ids=None, task_ids=None, attention_mask=None, masked_lm_labels=None,
                 next_sentence_label=None, checkpoint_activations=False):
         # assert len(input_ids) * len(token_type_ids) * len(attention_mask) == 1
+
         token_type_ids = token_type_ids if token_type_ids is None else torch.cat(token_type_ids, dim=0)
         task_ids = task_ids if task_ids is None else torch.cat(task_ids, dim=0)
         att_mask = attention_mask if attention_mask is None else torch.cat(attention_mask, dim=0)
@@ -303,7 +303,7 @@ class Bert(PreTrainedBertModel):
             l = [] #for weighted sum, now is not our main target
             r = [] #for weighted sum, now is not our main target
 
-            for i in range(1,4):
+            for i in range(1, self.num_facets+1):
                 l.append(sequence_output[:,i][:half])
                 r.append(sequence_output[:,i][half:])
                 '''
@@ -316,8 +316,8 @@ class Bert(PreTrainedBertModel):
                 recv_emb_list.append(recv_emb)
              
             #self.embedding_var_after_pool=self.var_of_embedding(torch.stack(pool_output_list).transpose(0,1))
-            
-            
+
+
             send_emb_tensor=torch.stack(send_emb_list)
             recv_emb_tensor=torch.stack(recv_emb_list)
 
@@ -333,21 +333,22 @@ class Bert(PreTrainedBertModel):
             Init stat
             '''
             self.facet_agg_stats = {}
-            if 'token' in self.extra_token:
-                self.facet_agg_stats['token'] = torch.zeros(3)
-            if 'vocab' in self.extra_token:
-                self.facet_agg_stats['vocab'] = torch.zeros(3)
-            if self.facet2facet:
-                self.facet_agg_stats['f2f'] = torch.zeros(9)
+            if self.num_facets>0:
+                if 'token' in self.extra_token:
+                    self.facet_agg_stats['token'] = torch.zeros(self.num_facets)
+                if 'vocab' in self.extra_token:
+                    self.facet_agg_stats['vocab'] = torch.zeros(self.num_facets)
+                if self.facet2facet:
+                    self.facet_agg_stats['f2f'] = torch.zeros(self.num_facets**2)
 
             '''
             Code related to dropout
             '''
             drop_out_flag = False
             if self.use_dropout:
-                if np.random.uniform()>=0: #<=0.05:
-                    choice = np.random.randint(3, size=1).item()
-                    choice = 0
+                if np.random.uniform()<=0.05:
+                    choice = np.random.randint(self.num_facets, size=1).item()
+                    #choice = 0
                     send_emb_tensor = send_emb_tensor[choice].unsqueeze(dim=0)
                     recv_emb_tensor = recv_emb_tensor[choice].unsqueeze(dim=0)
                     drop_out_flag = True
@@ -358,13 +359,13 @@ class Bert(PreTrainedBertModel):
             prob_w_tensor = torch.stack([self.prob_w] * (half * 2))
             freq_w = torch.gather(prob_w_tensor, 1, index=token_index)
 
-
+            freq_w = freq_w[:, (self.num_facets + 1):]
             '''
             compute similarity score matrix corresponding to different choices
             '''
 
             if self.extra_token=='token':
-                token_hidden = sequence_output[:, 4:, :]
+                token_hidden = sequence_output[:, (self.num_facets+1):, :]
                 token_hidden_proj = self.lm.transform(token_hidden,not_norm=self.unnorm_token)
 
                 score_left = self.get_probs_hidden(send_emb_tensor, token_hidden_proj[half:])
@@ -376,15 +377,15 @@ class Bert(PreTrainedBertModel):
                 # score_left = self.word2vec_loss(score_left, att_mask[half:, :], freq_w[half:])
                 # score_right  = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
 
-                freq_w = freq_w[:, 4:]
 
                 score_left = self.masked_softmax(score_left,  att_mask[half:, :],
-                                                 reduce_func='log', word_weight=freq_w[half:])
+                                                 reduce_func='weighted', word_weight=freq_w[half:])
                 score_right = self.masked_softmax(score_right, att_mask[:half, :],
-                                                  reduce_func='log', word_weight=freq_w[:half])
+                                                  reduce_func='weighted', word_weight=freq_w[:half])
+
             elif self.extra_token=='token-mr':
                 #(batch, number of tokens, emb_size)
-                token_hidden = sequence_output[:, 4:, :]
+                token_hidden = sequence_output[:, (self.num_facets+1):, :]
                 #project to embedding space
                 token_hidden_proj = self.lm.transform(token_hidden, not_norm=self.unnorm_token)
 
@@ -396,7 +397,6 @@ class Bert(PreTrainedBertModel):
                 score_left = self.mr_loss(token_hidden_proj_detach[half:], send_emb_tensor)
                 score_right = self.mr_loss(token_hidden_proj_detach[:half], recv_emb_tensor)
 
-                freq_w = freq_w[:, 4:]
                 score_left = self.masked_softmax(score_left,  att_mask[half:, :],
                                                  reduce_func='weighted', word_weight=freq_w[half:])
                 score_right = self.masked_softmax(score_right, att_mask[:half, :],
@@ -405,14 +405,13 @@ class Bert(PreTrainedBertModel):
                 #estimate_coeff_mat_batch_opt()
 
             elif self.extra_token=='vocab-mr':
-                token_embeds = self.bert.embeddings.word_embeddings(token_index[:, 4:])
+                token_embeds = self.bert.embeddings.word_embeddings(token_index[:, (self.num_facets+1):])
                 token_embeds_detach = token_embeds.detach().clone()
                 #token_embeds_detach = token_embeds_detach / (0.000000000001 + token_embeds_detach.norm(dim=2, keepdim=True))  # If this step is really slow, consider to do normalization before doing unfold
 
                 score_left = self.mr_loss(token_embeds_detach[half:], send_emb_tensor)
                 score_right = self.mr_loss(token_embeds_detach[:half], recv_emb_tensor)
 
-                freq_w= freq_w[:,4:]
                 score_left = self.masked_softmax(score_left,  att_mask[half:, :],
                                                  reduce_func='weighted', word_weight=freq_w[half:])
                 score_right = self.masked_softmax(score_right, att_mask[:half, :],
@@ -420,7 +419,7 @@ class Bert(PreTrainedBertModel):
 
             elif self.extra_token=='vocab':
                 #bert vocab embedding by token index
-                token_embeds = self.bert.embeddings.word_embeddings(token_index[:, 4:])
+                token_embeds = self.bert.embeddings.word_embeddings(token_index[:, (self.num_facets+1):])
 
                 score_left = self.get_probs_hidden(send_emb_tensor, token_embeds[half:])
                 score_right = self.get_probs_hidden(recv_emb_tensor, token_embeds[:half])
@@ -435,7 +434,6 @@ class Bert(PreTrainedBertModel):
                 score_right = self.word2vec_loss(score_right, att_mask[:half, :],freq_w[:half])
                 '''
 
-                freq_w= freq_w[:,4:]
                 score_left = self.masked_softmax(score_left,  att_mask[half:, :],
                                                  reduce_func='weighted', word_weight=freq_w[half:])
                 score_right = self.masked_softmax(score_right, att_mask[:half, :],
@@ -473,8 +471,8 @@ class Bert(PreTrainedBertModel):
 
 
             elif self.extra_token=='avg':
-                all_words = sequence_output[:, 4:, :]
-                length_mask = att_mask[:, 4:].unsqueeze(2)
+                all_words = sequence_output[:, (self.num_facets+1):, :]
+                length_mask = att_mask[:, (self.num_facets+1):].unsqueeze(2)
                 average_tokens = (all_words * length_mask).sum(dim=1) / length_mask.sum(dim=1)
                 average_pool = self.sent["mf"]['extra_pool'](average_tokens)
                 pooled_out_trans = self.sent["mf"]['extra_head'](average_pool)
@@ -511,7 +509,7 @@ class Bert(PreTrainedBertModel):
 
                 else:
                     score_all = []
-                    for i in range(3):
+                    for i in range(self.num_facets):
                         score_all.append(self.cross_cos_sim(recv_emb_tensor,send_emb_tensor[i]))
 
                     score_all = self.agg_function_map(torch.stack(score_all), self.agg_function, dim=(0,1))
@@ -525,12 +523,12 @@ class Bert(PreTrainedBertModel):
                 if drop_out_flag:
                     facets_avg = sequence_output[:,choice,:]
                 else:
-                    facets_avg = torch.mean(sequence_output[:,1:4,:], dim=1)
+                    facets_avg = torch.mean(sequence_output[:,1:(self.num_facets+1),:], dim=1)
 
                 token_embeds = self.bert.embeddings.word_embeddings(token_index[:,4:]).detach().clone()
                 # I have made a change in my version so that it is like this, but I believe on your end
                 # you do not need to slice freq_w here.
-                token_weights = (freq_w * att_mask[:,4:]).unsqueeze(-1)
+                token_weights = (freq_w * att_mask[:,(self.num_facets+1):]).unsqueeze(-1)
                 words_weighted_sum = (token_embeds * token_weights).mean(dim=1)
 
                 loss_autoenc = self.autoenc_reg_const * self.criterion_autoenc(facets_avg, words_weighted_sum)
@@ -549,6 +547,7 @@ class Bert(PreTrainedBertModel):
                 self.facet_agg_stats['vocab'] = self.facet_agg_stats['vocab'] / torch.sum(self.facet_agg_stats['vocab'])
             if self.facet2facet:
                 self.facet_agg_stats['f2f'] = self.facet_agg_stats['f2f'] / torch.sum(self.facet_agg_stats['f2f'])
+
 
                 
         if "rg" in modes:
@@ -636,8 +635,8 @@ class Bert(PreTrainedBertModel):
         if method == 'max':
             if isinstance(dim, int):  #case token or vocab
                 vals, idxs = torch.max(score, dim=dim)
-                if num_facets == 3:
-                    counts = torch.bincount(idxs.flatten().cpu(), minlength=3)
+                if num_facets == self.num_facets:
+                    counts = torch.bincount(idxs.flatten().cpu(), minlength=self.num_facets)
                     if self.extra_token == 'token':
                         self.facet_agg_stats['token'] += counts
                     elif self.extra_token == 'vocab':
@@ -647,11 +646,11 @@ class Bert(PreTrainedBertModel):
             elif isinstance(dim, tuple):  #case facet2facet. Assumes dim=(0,1)
                 vals_intermed, idxs_intermed = torch.max(score, dim=0)  # max over dim 0 of score
                 vals_final, idxs_final = torch.max(vals_intermed, dim=0)  # max over dims 0 and 1 of score
-                if num_facets == 3:
+                if num_facets == self.num_facets:
                     second_facet_idxs = idxs_final.unsqueeze(0)
                     first_facet_idxs = torch.gather(idxs_intermed, dim=0, index=second_facet_idxs)
-                    flattened = (first_facet_idxs * 3 + second_facet_idxs).flatten().cpu()
-                    counts = torch.bincount(flattened, minlength=9)
+                    flattened = (first_facet_idxs * self.num_facets + second_facet_idxs).flatten().cpu()
+                    counts = torch.bincount(flattened, minlength=self.num_facets**2)
                     self.facet_agg_stats['f2f'] += counts
                 # else dropout batch, and stats will appear as 'nan'
                 return vals_final
@@ -701,7 +700,7 @@ class Bert(PreTrainedBertModel):
         length = dot.shape[-1]
         freq_w_mask = word_weight*mask
         #freq_w_mask = mask
-        freq_w_mask = freq_w_mask[:, 4:]
+        freq_w_mask = freq_w_mask[:, self.num_facets+1:]
 
         neg_freq_w_sum = freq_w_mask.sum().expand(mask.shape[0]) - freq_w_mask.sum(dim=1)
 
@@ -735,7 +734,7 @@ class Bert(PreTrainedBertModel):
 
 
 
-        mask = mask[:, 4:]
+        mask = mask[:, self.num_facets+1:]
         mask = mask.float()
         word_weight = word_weight * mask
 
@@ -743,7 +742,8 @@ class Bert(PreTrainedBertModel):
         #word_weight = word_weight / word_weight.sum(dim=1, keepdim=True)
         half = prob.shape[0] #batch size
         prob = prob * mask#.float()
-        #rep_value = torch.ones(prob.shape)*-1e10
+
+        #prob = prob + (mask.expand(half, half, -1) + 1e-45).log()
         #prob = torch.where(mask.expand(half, half, -1) != 0, prob, rep_value.cuda())
         if reduce_func == 'log':
             prob = torch.nn.functional.log_softmax(prob.reshape(half, -1), dim=1)
@@ -805,8 +805,8 @@ class Bert(PreTrainedBertModel):
         
         prob = prob.expand(half, half, -1).transpose(1, 0)  #16,16,30522
         index_all = index_list.expand(half, half, -1)  #16,16,128
-        index_all = index_all[:, :, 4:-1] #16,16,123
-        mask_all  = mask[:, 4:-1].expand(half, half, -1)
+        index_all = index_all[:, :, self.num_facets+1:-1] #16,16,123
+        mask_all  = mask[:, self.num_facets+1:-1].expand(half, half, -1)
         
         sel_prob = torch.gather(prob, dim=2, index=index_all)
         score = (sel_prob * mask_all).sum(dim=2)/mask_all.sum(dim=2)

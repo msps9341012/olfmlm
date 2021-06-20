@@ -95,6 +95,7 @@ def load_tsv(
     filter_value=None,
     tag_vocab=None,
     tag2idx_dict=None,
+    few_shot_sample=False
 ):
     """
     Load a tsv.
@@ -133,6 +134,9 @@ def load_tsv(
         keep_default_na=False,
         encoding="utf-8",
     )
+    if few_shot_sample:
+        rows = rows.sample(n=100)
+
     if filter_idx:
         rows = rows[rows[filter_idx] == filter_value]
     # Filter for sentence1s that are of length 0
@@ -290,7 +294,7 @@ def process_sentence(tokenizer_name, sent, max_seq_len):
     """process a sentence """
     max_seq_len -= 2
     max_seq_len = max_seq_len-3
-    
+
     assert max_seq_len > 0, "Max sequence length should be at least 2!"
     tokenizer = get_tokenizer(tokenizer_name)
     if tokenizer_name.startswith("bert-"):

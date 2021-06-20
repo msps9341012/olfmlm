@@ -39,31 +39,51 @@ def get_params_for_weight_decay_optimization(module):
             no_weight_decay_params['params'].extend(
                 [p for n, p in list(module_._parameters.items())
                  if p is not None and n == 'bias'])
+
     return weight_decay_params, no_weight_decay_params
 
 
-def get_params_for_dict_format(module_dict):
-    '''
-    Although the above function also can return the same result, just create another one in case of other issues.
-    '''
-    weight_decay_params = {'params': []}
-    no_weight_decay_params = {'params': [], 'weight_decay': 0}
-    for module_obj in module_dict:
-        if isinstance(module_obj, BertHeadTransform):
-            continue
-        for module_ in module_obj.modules():
-            if isinstance(module_, (BertLayerNorm, torch.nn.LayerNorm)):
-                no_weight_decay_params['params'].extend(
-                    [p for p in list(module_._parameters.values())
-                     if p is not None])
-            else:
-                weight_decay_params['params'].extend(
-                    [p for n, p in list(module_._parameters.items())
-                     if p is not None and n != 'bias'])
-                no_weight_decay_params['params'].extend(
-                    [p for n, p in list(module_._parameters.items())
-                 if p is not None and n == 'bias'])
-    return weight_decay_params, no_weight_decay_params
+# def get_params_for_weight_decay_optimization(module):
+#
+#     weight_decay_params = {'params': []}
+#     no_weight_decay_params = {'params': [], 'weight_decay': 0}
+#     for module_ in module.modules():
+#         if isinstance(module_, (BertLayerNorm, torch.nn.LayerNorm)):
+#             no_weight_decay_params['params'].extend(
+#                 [p for p in list(module_._parameters.values())
+#                  if p is not None])
+#         else:
+#             weight_decay_params['params'].extend(
+#                 [p for n, p in list(module_._parameters.items())
+#                  if p is not None and n != 'bias'])
+#             no_weight_decay_params['params'].extend(
+#                 [p for n, p in list(module_._parameters.items())
+#                  if p is not None and n == 'bias'])
+#     return weight_decay_params, no_weight_decay_params
+#
+
+# def get_params_for_dict_format(module_dict):
+#     '''
+#     Although the above function also can return the same result, just create another one in case of other issues.
+#     '''
+#     weight_decay_params = {'params': []}
+#     no_weight_decay_params = {'params': [], 'weight_decay': 0}
+#     for module_obj in module_dict:
+#         if isinstance(module_obj, BertHeadTransform):
+#             continue
+#         for module_ in module_obj.modules():
+#             if isinstance(module_, (BertLayerNorm, torch.nn.LayerNorm)):
+#                 no_weight_decay_params['params'].extend(
+#                     [p for p in list(module_._parameters.values())
+#                      if p is not None])
+#             else:
+#                 weight_decay_params['params'].extend(
+#                     [p for n, p in list(module_._parameters.items())
+#                      if p is not None and n != 'bias'])
+#                 no_weight_decay_params['params'].extend(
+#                     [p for n, p in list(module_._parameters.items())
+#                  if p is not None and n == 'bias'])
+#     return weight_decay_params, no_weight_decay_params
 
 
 class BertModel(torch.nn.Module):
@@ -90,7 +110,7 @@ class BertModel(torch.nn.Module):
         self.model = Bert(*model_args, modes=args.modes.split(','), extra_token=args.extra_token,
                           agg_function=args.agg_function, unnorm_facet=args.unnorm_facet,
                           unnorm_token=args.unnorm_token, facet2facet=args.facet2facet,
-                          use_dropout=args.use_dropout, autoenc_reg_const=args.autoenc_reg_const)
+                          use_dropout=args.use_dropout, autoenc_reg_const=args.autoenc_reg_const, num_facets=args.num_facets)
         if args.pretrained_bert:
             print('use pretrained weight')
             self.model.bert=self.model.bert.from_pretrained('bert-base-uncased',cache_dir=args.cache_dir,config_file_path=args.bert_config_file)
@@ -98,12 +118,10 @@ class BertModel(torch.nn.Module):
                 with torch.no_grad():
                     self.model.lm.decoder.weight=self.model.bert.embeddings.word_embeddings.weight
                     if args.same_weight:
-                        self.model.sent.mf.v_1.dense.weight=torch.nn.Parameter(self.model.bert.pooler.dense.weight.data)
-                        self.model.sent.mf.v_2.dense.weight=torch.nn.Parameter(self.model.sent.mf.v_1.dense.weight.data)
-                        self.model.sent.mf.v_3.dense.weight=torch.nn.Parameter(self.model.sent.mf.v_1.dense.weight.data)
-                        self.model.sent.mf.s_1.dense.weight=torch.nn.Parameter(self.model.bert.pooler.dense.weight.data)
-                        self.model.sent.mf.s_2.dense.weight=torch.nn.Parameter(self.model.sent.mf.s_1.dense.weight.data)
-                        self.model.sent.mf.s_3.dense.weight=torch.nn.Parameter(self.model.sent.mf.s_1.dense.weight.data)
+                        for i in range(1,args.num_facets+1):
+                            self.model.sent.mf['v_{}'.format(i)].dense.weight = torch.nn.Parameter(self.model.bert.pooler.dense.weight.data)
+                            self.model.sent.mf['s_{}'.format(i)].dense.weight = torch.nn.Parameter(self.model.bert.pooler.dense.weight.data)
+
 
             #self.model.bert=self.model.bert.from_pretrained('bert-base-uncased',cache_dir=args.cache_dir,config_file_path=args.bert_config_file)
             
@@ -119,18 +137,35 @@ class BertModel(torch.nn.Module):
     def load_state_dict(self, state_dict, strict=True):
         return self.model.load_state_dict(state_dict, strict=strict)
 
+    # def get_params(self):
+    #     param_groups = []
+    #     param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.encoder.layer))
+    #     param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.pooler))
+    #     param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.embeddings))
+    #     for classifier in self.model.sent.values():
+    #         if isinstance(classifier, torch.nn.ModuleDict):
+    #             #handle the mf dict type
+    #             classifier = classifier.values()
+    #             param_groups += list(get_params_for_dict_format(classifier))
+    #         else:
+    #             param_groups += list(get_params_for_weight_decay_optimization(classifier))
+    #     for k, classifier in self.model.tok.items():
+    #         if k == "sbo":
+    #             param_groups += list(get_params_for_weight_decay_optimization(classifier.transform))
+    #             param_groups[1]['params'].append(classifier.bias)
+    #         else:
+    #             param_groups += list(get_params_for_weight_decay_optimization(classifier))
+    #     param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.transform))
+    #     param_groups[1]['params'].append(self.model.lm.bias)
+    #
+    #     return param_groups
     def get_params(self):
         param_groups = []
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.encoder.layer))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.pooler))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.embeddings))
         for classifier in self.model.sent.values():
-            if isinstance(classifier, torch.nn.ModuleDict):
-                #handle the mf dict type
-                classifier = classifier.values()
-                param_groups += list(get_params_for_dict_format(classifier))
-            else:
-                param_groups += list(get_params_for_weight_decay_optimization(classifier))
+            param_groups += list(get_params_for_weight_decay_optimization(classifier))
         for k, classifier in self.model.tok.items():
             if k == "sbo":
                 param_groups += list(get_params_for_weight_decay_optimization(classifier.transform))

@@ -472,7 +472,7 @@ class bert_dataset(data.Dataset):
         max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
     """
     def __init__(self, ds, max_seq_len=512, mask_lm_prob=.15, max_preds_per_seq=None, short_seq_prob=0.01,
-                 presplit_sentences=False, max_dataset_size=None, **kwargs):
+                 presplit_sentences=False, max_dataset_size=None, num_facets=3,**kwargs):
         self.avg_len = []
         self.ds = ds
         self.ds_len = min(len(self.ds), max_dataset_size) if max_dataset_size else len(self.ds)
@@ -494,6 +494,10 @@ class bert_dataset(data.Dataset):
         self._all_tf = []
         self.task_list = ["mlm", "nsp", "psp", "sd", "so", "rg", "fs", "tc", "sc", "sbo", "wlen", "cap", "tf", "tf_idf", "tgs","mf"]
         self.task_dict = dict(zip(self.task_list, range(1, len(self.task_list) + 1)))
+        self.num_facets= num_facets
+        self.facet_vectors_id = []
+        for i in range(1, self.num_facets + 1):
+            self.facet_vectors_id.append(self.tokenizer.get_command('s_{}'.format(i)).Id)
 	
     def __len__(self):
         return self.ds_len
@@ -683,9 +687,12 @@ class bert_dataset(data.Dataset):
         Truncate sequence pair
         """
         max_num_tokens = self.max_seq_len - 2
-        
+
+        '''
+        Reserve space for facets
+        '''
         if 'mf' in self.modes:
-            max_num_tokens=max_num_tokens-3
+            max_num_tokens=max_num_tokens-self.num_facets
             
         while True:
             if len(tokens) <= max_num_tokens:
@@ -989,9 +996,9 @@ class bert_dataset(data.Dataset):
             '''
 
             if "mf" in self.modes:
-                tokens[i] = [self.tokenizer.get_command('ENC').Id] + [self.tokenizer.get_command('s_1').Id] +[self.tokenizer.get_command('s_2').Id] + [self.tokenizer.get_command('s_3').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
+                tokens[i] = [self.tokenizer.get_command('ENC').Id] + self.facet_vectors_id + tokens[i] + [self.tokenizer.get_command('sep').Id]
                 #add 3 types for views
-                token_types[i] = [token_types[i][0]] + [token_types[i][0]]*3 + token_types[i] + [token_types[i][0]]
+                token_types[i] = [token_types[i][0]] + [token_types[i][0]]*self.num_facets + token_types[i] + [token_types[i][0]]
                 
             else:
                 tokens[i] = [self.tokenizer.get_command('ENC').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
@@ -1015,15 +1022,13 @@ class bert_dataset(data.Dataset):
             '''
             Do not include facet token during mlm
             '''
+            unmasked_id = [self.tokenizer.get_command('ENC').Id, self.tokenizer.get_command('sep').Id,
+                           self.tokenizer.get_command('pad').Id] + self.facet_vectors_id
             while num_masked < num_to_predict:
                 idx = cand_indices[ci]
                 ci += 1
-                if idx in do_not_mask_tokens or tokens[i][idx] in [self.tokenizer.get_command('ENC').Id,
-                                                                   self.tokenizer.get_command('sep').Id,
-                                                                   self.tokenizer.get_command('pad').Id,
-                                                                   self.tokenizer.get_command('s_1').Id,
-                                                                   self.tokenizer.get_command('s_2').Id,
-                                                                   self.tokenizer.get_command('s_3').Id]:
+
+                if idx in do_not_mask_tokens or tokens[i][idx] in unmasked_id:
                     continue
                 mask[i][idx] = 1
                 label = self.mask_token(idx, tokens[i], token_types[i], vocab_words, rng)

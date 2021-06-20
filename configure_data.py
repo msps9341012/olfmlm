@@ -143,7 +143,8 @@ def make_loaders(args):
         'cache_dir': args.cache_dir,
         'max_preds_per_seq': args.max_preds_per_seq,
         'presplit_sentences': args.presplit_sentences,
-        'max_dataset_size': args.max_dataset_size
+        'max_dataset_size': args.max_dataset_size,
+        'num_facets': args.num_facets
     }
 
     eval_set_args = copy.copy(data_set_args)
