@@ -33,27 +33,25 @@ pip install -r requirements.txt
     - This file is to make sure we will have the same training/dev/testing set.
   - Copy the word_frequency count file, ```/iesl/canvas/rueiyaosun/freq_counter.pkl``` to your space
     - Set your path in [here](https://github.com/msps9341012/olfmlm/blob/mf/model/new_models.py#L14)
+  - To creat your own dataset, please follow the Usage section.
     
 - Commands for training.
   ```
   bash olfmlm/scripts/pretrain_bert.sh --model-type mf --pretrained-bert --save-iters 86400 --lr 2e-5 
-              --agg-function max --warmup 0 --extra-token token --same-weight
+              --agg-function max --warmup 0 --extra-token token --unnorm-facet
+              --same-weight --facet2facet --num-facets 3
   ```
     - This means using pretrain-bert weights, do not use warmup and training with mf task and initialize 3 facets' pooler and transform head weight the same.
       - Save the model every 86400 iterations (basically a day)
       - Change the save folder name in [here](https://github.com/msps9341012/olfmlm/blob/mf/arguments.py#L307) in case you want to try different setting
     - The choices for agg-function are 'max', 'logsum', 'softmax' (not stable). 
-    - While for the extra-token, we have 'token', 'vocab', 'cls', 'avg' and 'all'.
+    - While for the extra-token loss, we have 'token', 'vocab', 'cls', 'avg' and 'all'.
+    - Some useful args, 'use_dropout' (for dropout facet), 'autoenc-reg-cons' for auto-encoder loss
     - Now in the logging iteration during **training**, the code will also do the nearest token finding
       - Update your path to ```raw_val.pkl``` in [here](https://github.com/msps9341012/olfmlm/blob/mf/find_neighbors.py#L34)
     - The remaining arguments are the same to the original repo. 
       - You can see more details descriptions in ```arguments.py```
-    - Dropout code is in [here](https://github.com/msps9341012/olfmlm/blob/mf/model/new_models.py#L265-L271)
-      - Make the model only consider one facet
-      - _Have not tested it on our new setting, so might have some issues_
   
-  
-
 - Visualization
   - Get the output hidden states for all facets, you can change the ```save_dir``` within the file.
     - ```python -m olfmlm.extract_embedd max_token```
